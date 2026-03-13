@@ -1,0 +1,17 @@
+[project]
+name = "agentloop_sdk"
+version = "0.1.0"
+description = "AgentLoop SDK: Evaluation tools for the AgentLoop platform."
+requires-python = ">=3.10"
+dependencies = [
+    "agentscope",
+    "aliyun-log-python-sdk",
+    "alibabacloud-cms20240330-inner",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentloop_sdk"]

@@ -1,7 +1,10 @@
 [project]
 name = "agentloop_sdk"
-version = "0.1.0"
-description = "AgentLoop SDK: Evaluation tools for the AgentLoop platform."
+version = "0.2.0"
+description = "AgentLoop SDK: Evaluation tools for the AgentLoop platform. https://cmsnext.console.aliyun.com/agentloop"
+authors = [
+    { name = "Alibaba Cloud CMS" }
+]
 requires-python = ">=3.10"
 dependencies = [
     "agentscope",

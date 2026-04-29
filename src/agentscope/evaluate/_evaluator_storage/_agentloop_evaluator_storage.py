@@ -138,6 +138,9 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 The SLS project name.
         """
         try:
+            from alibabacloud_cms20240330 import (
+                models as cms_20240330_models,
+            )
             from alibabacloud_tea_util import models as util_models
         except ImportError as e:
             raise ImportError(
@@ -147,11 +150,13 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
             ) from e
 
         client = self._get_cms_client()
+        request = cms_20240330_models.GetWorkspaceRequest()
         runtime = util_models.RuntimeOptions()
         headers: dict = {}
 
         resp = client.get_workspace_with_options(
             self.config.workspace,
+            request,
             headers,
             runtime,
         )

@@ -28,7 +28,7 @@ from ._ace_benchmark import (
 from ._agentloop_benchmark import (
     AgentLoopBenchmark,
 )
-from ._agentloop_config import AgentLoopConfig
+from ._agentloop_config import AgentLoopConfig, EvaluatorConfig
 
 __all__ = [
     "BenchmarkBase",
@@ -49,4 +49,5 @@ __all__ = [
     "ACEPhone",
     "AgentLoopBenchmark",
     "AgentLoopConfig",
+    "EvaluatorConfig",
 ]

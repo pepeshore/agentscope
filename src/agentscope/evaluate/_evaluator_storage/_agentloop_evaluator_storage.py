@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """An AgentLoop (SLS) based evaluator storage that extends FileEvaluatorStorage
-to additionally write evaluation results to Alibaba Cloud SLS.
+to additionally write evaluation results to Alibaba Cloud SLS and upload
+experiment records via the AgentLoop API.
 
 Refer to:
 https://help.aliyun.com/zh/sls/developer-reference/write-log
@@ -50,14 +51,15 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
             save_dir (`str`):
                 The directory to save evaluation results locally.
             config (`AgentLoopConfig`):
-                The AgentLoop configuration containing workspace, dataset,
+                The AgentLoop configuration containing agent_space, dataset,
                 region_id, project, and credentials.
             experiment_id (`str | None`):
                 The unique experiment ID. If not provided, a UUID will be
                 generated automatically.
             experiment_name (`str | None`):
-                A human-readable name for the experiment. If not provided,
-                will be generated based on experiment_id and timestamp.
+                A human-readable name for the experiment. When None,
+                falls back to ``config.effective_experiment_name`` so the
+                benchmark and storage share the same identity.
             experiment_type (`str`):
                 The experiment type. Either "model" or "agent".
                 Defaults to "agent".
@@ -66,7 +68,8 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 Defaults to None.
             experiment_config (`dict | None`):
                 The experiment configuration, e.g. model settings or agent
-                configuration. Defaults to None.
+                configuration. When None, falls back to
+                ``config.experiment_config``.
         """
         # Initialize parent class
         super().__init__(save_dir=save_dir)
@@ -78,103 +81,116 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
         self.logstore = EXPERIMENT_LOGSTORE
 
         # Lazily-initialized cached clients (created on first use)
-        self._cms_client: Any = None
+        self._agentloop_client: Any = None
         self._sls_client: Any = None
 
-        # Query project from workspace if not provided in config
+        # Resolve SLS project from agent_space if not provided
         if not self.config.project:
-            self.config.project = self._get_workspace_project()
+            self._resolve_project()
+
+        # Validate evaluators against the platform (skips if already done)
+        self.config.validate_evaluators()
 
         # Experiment identification
         self.experiment_id = experiment_id or str(uuid.uuid4())
-        self.experiment_name = experiment_name or (
-            f"experiment_{self.experiment_id[:8]}_"
-            f"{time.strftime('%Y%m%d_%H%M%S')}"
+        self.experiment_name = (
+            experiment_name
+            or self.config.effective_experiment_name
         )
         self.experiment_type = experiment_type
         self.experiment_start_time = int(time.time() * 1000)
         self.experiment_metadata = experiment_metadata or {
             "run_env": "local_run",
         }
-        self.experiment_config = experiment_config or {}
+        self.experiment_config = (
+            experiment_config
+            if experiment_config is not None
+            else self.config.experiment_config
+        )
 
         # Cache for task meta (experiment_data), keyed by task_id
         self._task_meta_cache: dict[str, dict] = {}
 
-    def _get_cms_client(self) -> Any:
-        """Get the CMS client instance, creating and caching it on first call.
+        # Tracking counters for upload_experiment
+        self._completed_tasks: int = 0
+        self._failed_tasks: int = 0
+        self._total_tasks: int = 0
+
+    def _get_agentloop_client(self) -> Any:
+        """Get the AgentLoop client instance, creating and caching it on
+        first call.
 
         Returns:
-            `Cms20240330Client`:
-                The CMS client instance.
+            `Client`:
+                The AgentLoop client instance.
         """
-        if self._cms_client is not None:
-            return self._cms_client
+        if self._agentloop_client is not None:
+            return self._agentloop_client
 
         try:
-            from alibabacloud_cms20240330.client import Client
-            from alibabacloud_tea_openapi import models as open_api_models
+            from alibabacloud_agentloop20260520.client import Client
+            from alibabacloud_tea_openapi import (
+                utils_models as open_api_util_models,
+            )
         except ImportError as e:
             raise ImportError(
-                "The alibabacloud-cms20240330-inner package is required for "
+                "The alibabacloud-agentloop20260520 package is required for "
                 "AgentLoopEvaluatorStorage. Install it with: "
-                "pip install alibabacloud-cms20240330-inner",
+                "pip install alibabacloud-agentloop20260520",
             ) from e
 
-        client_config = open_api_models.Config(
+        client_config = open_api_util_models.Config(
             access_key_id=self.config.access_key_id,
             access_key_secret=self.config.access_key_secret,
         )
-        client_config.endpoint = self.config.cms_endpoint
+        client_config.endpoint = self.config.agentloop_endpoint
 
-        self._cms_client = Client(client_config)
-        return self._cms_client
+        self._agentloop_client = Client(client_config)
+        return self._agentloop_client
 
-    def _get_workspace_project(self) -> str:
-        """Get the SLS project from workspace.
+    def _resolve_project(self) -> None:
+        """Resolve SLS project from the agent space.
 
-        Returns:
-            `str`:
-                The SLS project name.
+        Uses the AgentLoop API ``get_agent_space`` to look up the SLS
+        project associated with the configured agent space.
+
+        Raises:
+            `ValueError`:
+                If the SLS project cannot be resolved.
         """
         try:
-            from alibabacloud_cms20240330 import (
-                models as cms_20240330_models,
+            from alibabacloud_agentloop20260520 import (
+                models as agentloop_models,
             )
-            from alibabacloud_tea_util import models as util_models
         except ImportError as e:
             raise ImportError(
-                "The alibabacloud-cms20240330-inner package is required for "
+                "The alibabacloud-agentloop20260520 package is required for "
                 "AgentLoopEvaluatorStorage. Install it with: "
-                "pip install alibabacloud-cms20240330-inner",
+                "pip install alibabacloud-agentloop20260520",
             ) from e
 
-        client = self._get_cms_client()
-        request = cms_20240330_models.GetWorkspaceRequest()
-        runtime = util_models.RuntimeOptions()
-        headers: dict = {}
+        client = self._get_agentloop_client()
+        req = agentloop_models.GetAgentSpaceRequest()
 
-        resp = client.get_workspace_with_options(
-            self.config.workspace,
-            request,
-            headers,
-            runtime,
+        resp = client.get_agent_space(
+            self.config.agent_space,
+            req,
         )
         logger.debug(
-            f"CMS workspace response: "
+            f"AgentLoop get_agent_space response: "
             f"{json.dumps(resp.to_map(), default=str, indent=2)}",
         )
 
-        # Extract project from response
         body = resp.body
-        if body and body.sls_project:
-            return body.sls_project
+        if not body or not body.sls_project:
+            raise ValueError(
+                f"Failed to get SLS project for agent space "
+                f"'{self.config.agent_space}'. "
+                "Please ensure the agent space exists and has SLS "
+                "configured, or provide 'project' directly in the config.",
+            )
 
-        raise ValueError(
-            f"Failed to get SLS project for workspace "
-            f"'{self.config.workspace}'. "
-            "Please ensure the workspace exists and has SLS configured.",
-        )
+        self.config.project = body.sls_project
 
     def _get_sls_client(self) -> Any:
         """Get the SLS LogClient instance, creating and caching it on first
@@ -304,6 +320,12 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
             **kwargs,
         )
 
+        # Track task completion for upload_experiment
+        if output.success:
+            self._completed_tasks += 1
+        else:
+            self._failed_tasks += 1
+
         # Then, write to SLS. Failures are logged as warnings so that a
         # transient network / permission issue does not abort the evaluation.
         try:
@@ -391,3 +413,98 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
 
         # Cache the meta_info for later use in save_solution_result
         self._task_meta_cache[task_id] = meta_info
+
+        # Track total tasks
+        self._total_tasks += 1
+
+    def upload_experiment_record(
+        self,
+        aggregation_result: dict,
+    ) -> None:
+        """Upload the experiment record to AgentLoop via the
+        ``upload_experiment`` API.
+
+        Args:
+            aggregation_result (`dict`):
+                The aggregated evaluation results.
+        """
+        try:
+            from alibabacloud_agentloop20260520 import (
+                models as agentloop_models,
+            )
+        except ImportError as e:
+            raise ImportError(
+                "The alibabacloud-agentloop20260520 package is required for "
+                "AgentLoopEvaluatorStorage. Install it with: "
+                "pip install alibabacloud-agentloop20260520",
+            ) from e
+
+        client = self._get_agentloop_client()
+
+        data_source = {
+            "type": "DATASET_FULL",
+            "datasetId": self.config.dataset,
+        }
+
+        evaluator_models = None
+        if self.config.evaluators:
+            evaluator_models = [
+                agentloop_models.Evaluator(
+                    evaluator_ref=e.evaluator_ref or None,
+                    name=e.name or None,
+                    type=e.type or None,
+                    result_name=e.result_name or None,
+                    result_type=e.result_type or None,
+                    filters=e.filters,
+                    config=e.config,
+                    variable_mapping=e.variable_mapping,
+                )
+                for e in self.config.evaluators
+            ]
+
+        req = agentloop_models.UploadExperimentRequest(
+            record_id=self.experiment_id,
+            total_tasks=self._total_tasks,
+            completed_tasks=self._completed_tasks,
+            failed_tasks=self._failed_tasks,
+            data_source=data_source,
+            experiment_config=agentloop_models.ExperimentConfig(
+                name=self.experiment_name,
+            ),
+            evaluators=evaluator_models,
+        )
+
+        try:
+            resp = client.upload_experiment(
+                self.config.agent_space,
+                req,
+            )
+            logger.info(
+                f"Uploaded experiment record '{self.experiment_id}' to "
+                f"AgentLoop. Response: "
+                f"{json.dumps(resp.to_map(), default=str, indent=2)}",
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to upload experiment record "
+                f"'{self.experiment_id}' to AgentLoop: {e}",
+            )
+
+    def save_aggregation_result(
+        self,
+        aggregation_result: dict,
+        **kwargs: Any,
+    ) -> None:
+        """Save the aggregation result to local file and upload the
+        experiment record to AgentLoop.
+
+        Args:
+            aggregation_result (`dict`):
+                A dictionary containing the aggregation result.
+        """
+        super().save_aggregation_result(
+            aggregation_result=aggregation_result,
+            **kwargs,
+        )
+
+        self.upload_experiment_record(aggregation_result)

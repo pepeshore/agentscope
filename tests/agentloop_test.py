@@ -14,7 +14,7 @@ _SRC_DIR = os.path.join(os.path.dirname(__file__), "..", "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, os.path.abspath(_SRC_DIR))
 
-from agentscope.evaluate._agentloop_config import AgentLoopConfig
+from agentscope.evaluate._agentloop_config import AgentLoopConfig, EvaluatorConfig
 from agentscope.evaluate._agentloop_benchmark._agentloop_benchmark import (
     AgentLoopBenchmark,
 )
@@ -33,11 +33,12 @@ from agentscope.evaluate._solution import SolutionOutput
 def _make_config(
     region_id: str = "cn-hangzhou",
     project: str = "test_project",
+    agent_space: str = "test_agent_space",
     ground_truth_field: str = "",
     query: str = "",
 ) -> AgentLoopConfig:
     return AgentLoopConfig(
-        workspace="test_workspace",
+        agent_space=agent_space,
         dataset="test_dataset",
         region_id=region_id,
         project=project,
@@ -57,7 +58,7 @@ class TestAgentLoopConfig(unittest.TestCase):
 
     def test_basic_initialization(self) -> None:
         config = _make_config()
-        self.assertEqual(config.workspace, "test_workspace")
+        self.assertEqual(config.agent_space, "test_agent_space")
         self.assertEqual(config.dataset, "test_dataset")
         self.assertEqual(config.region_id, "cn-hangzhou")
         self.assertEqual(config.project, "test_project")
@@ -74,7 +75,7 @@ class TestAgentLoopConfig(unittest.TestCase):
 
     def test_custom_max_rows(self) -> None:
         config = AgentLoopConfig(
-            workspace="ws",
+            agent_space="as",
             dataset="ds",
             region_id="cn-hangzhou",
             max_rows=500,
@@ -86,7 +87,7 @@ class TestAgentLoopConfig(unittest.TestCase):
     def test_invalid_max_rows_raises(self) -> None:
         with self.assertRaises(ValueError):
             AgentLoopConfig(
-                workspace="ws",
+                agent_space="as",
                 dataset="ds",
                 region_id="cn-hangzhou",
                 max_rows=0,
@@ -97,7 +98,7 @@ class TestAgentLoopConfig(unittest.TestCase):
     def test_negative_max_rows_raises(self) -> None:
         with self.assertRaises(ValueError):
             AgentLoopConfig(
-                workspace="ws",
+                agent_space="as",
                 dataset="ds",
                 region_id="cn-hangzhou",
                 max_rows=-1,
@@ -119,23 +120,59 @@ class TestAgentLoopConfig(unittest.TestCase):
             },
         ):
             config = AgentLoopConfig(
-                workspace="ws",
+                agent_space="as",
                 dataset="ds",
                 region_id="cn-hangzhou",
             )
         self.assertEqual(config.access_key_id, "env_key")
         self.assertEqual(config.access_key_secret, "env_secret")
 
-    def test_explicit_credentials_override_env(self) -> None:
+    def test_credentials_loaded_from_agentloop_env(self) -> None:
         with patch.dict(
             os.environ,
             {
+                "AGENTLOOP_AK": "al_key",
+                "AGENTLOOP_SK": "al_secret",
+            },
+        ):
+            config = AgentLoopConfig(
+                agent_space="as",
+                dataset="ds",
+                region_id="cn-hangzhou",
+            )
+        self.assertEqual(config.access_key_id, "al_key")
+        self.assertEqual(config.access_key_secret, "al_secret")
+
+    def test_agentloop_env_takes_priority_over_alibaba_env(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AGENTLOOP_AK": "al_key",
+                "AGENTLOOP_SK": "al_secret",
                 "ALIBABA_CLOUD_ACCESS_KEY_ID": "env_key",
                 "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "env_secret",
             },
         ):
             config = AgentLoopConfig(
-                workspace="ws",
+                agent_space="as",
+                dataset="ds",
+                region_id="cn-hangzhou",
+            )
+        self.assertEqual(config.access_key_id, "al_key")
+        self.assertEqual(config.access_key_secret, "al_secret")
+
+    def test_explicit_credentials_override_env(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "AGENTLOOP_AK": "al_key",
+                "AGENTLOOP_SK": "al_secret",
+                "ALIBABA_CLOUD_ACCESS_KEY_ID": "env_key",
+                "ALIBABA_CLOUD_ACCESS_KEY_SECRET": "env_secret",
+            },
+        ):
+            config = AgentLoopConfig(
+                agent_space="as",
                 dataset="ds",
                 region_id="cn-hangzhou",
                 access_key_id="explicit_key",
@@ -163,7 +200,7 @@ class TestAgentLoopConfig(unittest.TestCase):
 
     def test_validate_credentials_both_missing(self) -> None:
         config = AgentLoopConfig(
-            workspace="ws",
+            agent_space="as",
             dataset="ds",
             region_id="cn-hangzhou",
         )
@@ -174,9 +211,12 @@ class TestAgentLoopConfig(unittest.TestCase):
             with self.assertRaises(ValueError):
                 config.validate_credentials()
 
-    def test_cms_endpoint(self) -> None:
+    def test_agentloop_endpoint(self) -> None:
         config = _make_config(region_id="cn-hangzhou")
-        self.assertEqual(config.cms_endpoint, "cms.cn-hangzhou.aliyuncs.com")
+        self.assertEqual(
+            config.agentloop_endpoint,
+            "agentloop.cn-hangzhou.aliyuncs.com",
+        )
 
     def test_sls_endpoint(self) -> None:
         config = _make_config(region_id="cn-hangzhou")
@@ -184,12 +224,15 @@ class TestAgentLoopConfig(unittest.TestCase):
 
     def test_endpoints_with_different_region(self) -> None:
         config = _make_config(region_id="cn-shanghai")
-        self.assertEqual(config.cms_endpoint, "cms.cn-shanghai.aliyuncs.com")
+        self.assertEqual(
+            config.agentloop_endpoint,
+            "agentloop.cn-shanghai.aliyuncs.com",
+        )
         self.assertEqual(config.sls_endpoint, "cn-shanghai.log.aliyuncs.com")
 
     def test_default_project_is_empty_string(self) -> None:
         config = AgentLoopConfig(
-            workspace="ws",
+            agent_space="as",
             dataset="ds",
             region_id="cn-hangzhou",
             access_key_id="k",
@@ -217,13 +260,13 @@ class TestAgentLoopBenchmark(unittest.TestCase):
         self,
         raw_data: list[dict],
         ground_truth_field: str = "",
-        name: str = "AgentLoopBenchmark",
+        name: str = "",
         description: str = "Benchmark loaded from AgentLoop.",
     ) -> AgentLoopBenchmark:
-        """Create a benchmark with _load_data_from_cms patched."""
+        """Create a benchmark with _load_data patched."""
         with patch.object(
             AgentLoopBenchmark,
-            "_load_data_from_cms",
+            "_load_data",
             return_value=raw_data,
         ):
             return AgentLoopBenchmark(
@@ -238,7 +281,11 @@ class TestAgentLoopBenchmark(unittest.TestCase):
 
     def test_default_name_and_description(self) -> None:
         benchmark = self._make_benchmark([])
-        self.assertEqual(benchmark.name, "AgentLoopBenchmark")
+        # Default name falls back to config.effective_experiment_name
+        self.assertEqual(
+            benchmark.name,
+            benchmark.config.effective_experiment_name,
+        )
         self.assertEqual(benchmark.description, "Benchmark loaded from AgentLoop.")
 
     def test_custom_name_and_description(self) -> None:
@@ -252,7 +299,7 @@ class TestAgentLoopBenchmark(unittest.TestCase):
 
     def test_config_stored(self) -> None:
         config = _make_config()
-        with patch.object(AgentLoopBenchmark, "_load_data_from_cms", return_value=[]):
+        with patch.object(AgentLoopBenchmark, "_load_data", return_value=[]):
             benchmark = AgentLoopBenchmark(config=config)
         self.assertIs(benchmark.config, config)
 
@@ -342,69 +389,74 @@ class TestAgentLoopBenchmark(unittest.TestCase):
             _ = benchmark[5]
 
     # ------------------------------------------------------------------
-    # _load_data_from_cms response parsing
+    # _parse_response_data (columns + rows format)
     # ------------------------------------------------------------------
 
-    def _make_mock_execute_query(self, data: object) -> MagicMock:
-        """Build a fake execute_query callable returning the given data."""
+    def test_parse_response_data_basic(self) -> None:
+        benchmark = self._make_benchmark([])
+        columns = ["col1", "col2"]
+        rows = [["a", 1], ["b", 2]]
+        result = benchmark._parse_response_data(columns, rows)
+        self.assertEqual(result, [{"col1": "a", "col2": 1}, {"col1": "b", "col2": 2}])
+
+    def test_parse_response_data_empty_rows(self) -> None:
+        benchmark = self._make_benchmark([])
+        result = benchmark._parse_response_data(["col1"], [])
+        self.assertEqual(result, [])
+
+    def test_parse_response_data_none_columns(self) -> None:
+        benchmark = self._make_benchmark([])
+        result = benchmark._parse_response_data(None, [["a"]])
+        self.assertEqual(result, [])
+
+    def test_parse_response_data_none_rows(self) -> None:
+        benchmark = self._make_benchmark([])
+        result = benchmark._parse_response_data(["col1"], None)
+        self.assertEqual(result, [])
+
+    def test_parse_response_data_both_none(self) -> None:
+        benchmark = self._make_benchmark([])
+        result = benchmark._parse_response_data(None, None)
+        self.assertEqual(result, [])
+
+    # ------------------------------------------------------------------
+    # _load_data with mocked SDK
+    # ------------------------------------------------------------------
+
+    def _make_mock_execute_query(
+        self,
+        columns: list[str] | None,
+        rows: list[list] | None,
+    ) -> MagicMock:
+        """Build a fake execute_query callable returning columns + rows."""
         mock_resp = MagicMock()
-        mock_resp.body.data = data
+        mock_resp.body.columns = columns
+        mock_resp.body.rows = rows
         mock_client = MagicMock()
         mock_client.execute_query.return_value = mock_resp
         return mock_client
 
-    def _call_load_data(self, data: object) -> list[dict]:
-        """Call _load_data_from_cms in single-query mode with a mocked client.
-
-        A custom query is set on the config so that _load_data_from_cms takes
-        the single-call path, which exercises _parse_response_data directly.
-        """
-        mock_client = self._make_mock_execute_query(data)
-        mock_cms_models = MagicMock()
-        mock_cms_models.ExecuteQueryRequest.return_value = MagicMock()
-        mock_cms_pkg = MagicMock()
-        mock_cms_pkg.models = mock_cms_models
-
-        with patch.dict(
-            "sys.modules",
-            {"alibabacloud_cms20240330": mock_cms_pkg},
-        ):
-            with patch.object(
-                AgentLoopBenchmark,
-                "_load_data_from_cms",
-                return_value=[],
-            ):
-                benchmark = AgentLoopBenchmark(config=_make_config())
-
-            # Force single-call mode by providing a custom query
-            benchmark.config.query = "* | select * from test_dataset"
-            benchmark._get_client = MagicMock(return_value=mock_client)  # type: ignore[method-assign]
-            return AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
-
     def _make_paginated_benchmark(self) -> AgentLoopBenchmark:
         """Create a benchmark with no custom query (paginated mode)."""
-        with patch.object(AgentLoopBenchmark, "_load_data_from_cms", return_value=[]):
+        with patch.object(AgentLoopBenchmark, "_load_data", return_value=[]):
             return AgentLoopBenchmark(config=_make_config())
 
-    def test_load_data_list_response(self) -> None:
-        records = [{"a": 1}, {"a": 2}]
-        result = self._call_load_data(records)
-        self.assertEqual(result, records)
+    def test_load_data_columns_rows_response(self) -> None:
+        """New format: columns + rows are combined into list of dicts."""
+        benchmark = self._make_paginated_benchmark()
+        benchmark.config.query = "* | select * from test_dataset"
 
-    def test_load_data_dict_with_rows(self) -> None:
-        rows = [{"r": 1}, {"r": 2}]
-        result = self._call_load_data({"rows": rows})
-        self.assertEqual(result, rows)
+        mock_client = self._make_mock_execute_query(
+            columns=["a", "b"],
+            rows=[[1, 2], [3, 4]],
+        )
 
-    def test_load_data_dict_with_records(self) -> None:
-        records = [{"rec": 1}]
-        result = self._call_load_data({"records": records})
-        self.assertEqual(result, records)
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(benchmark, "_get_client", return_value=mock_client):
+                result = AgentLoopBenchmark._load_data(benchmark)
 
-    def test_load_data_dict_without_known_keys(self) -> None:
-        data = {"unknown_key": "value"}
-        result = self._call_load_data(data)
-        self.assertEqual(result, [data])
+        self.assertEqual(result, [{"a": 1, "b": 2}, {"a": 3, "b": 4}])
 
     def test_load_data_none_body(self) -> None:
         mock_resp = MagicMock()
@@ -412,47 +464,29 @@ class TestAgentLoopBenchmark(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.execute_query.return_value = mock_resp
 
-        mock_cms_pkg = MagicMock()
-        with patch.dict("sys.modules", {"alibabacloud_cms20240330": mock_cms_pkg}):
-            with patch.object(
-                AgentLoopBenchmark,
-                "_load_data_from_cms",
-                return_value=[],
-            ):
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(AgentLoopBenchmark, "_load_data", return_value=[]):
                 benchmark = AgentLoopBenchmark(config=_make_config())
-
-            benchmark._get_client = MagicMock(return_value=mock_client)  # type: ignore[method-assign]
-            result = AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
-        self.assertEqual(result, [])
-
-    def test_load_data_none_data(self) -> None:
-        result = self._call_load_data(None)
+            benchmark.config.query = "* | select * from test_dataset"
+            with patch.object(benchmark, "_get_client", return_value=mock_client):
+                result = AgentLoopBenchmark._load_data(benchmark)
         self.assertEqual(result, [])
 
     # ------------------------------------------------------------------
-    # Paginated loading (_load_data_from_cms with no custom query)
+    # Paginated loading (_load_data with no custom query)
     # ------------------------------------------------------------------
 
     def test_paginated_stops_on_empty_response(self) -> None:
-        """When a page returns [], pagination terminates immediately."""
         benchmark = self._make_paginated_benchmark()
-        with patch.object(
-            benchmark,
-            "_execute_query_request",
-            return_value=[],
-        ):
-            result = AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
-        # Benchmark needs SDK import mocked
-        mock_cms_pkg = MagicMock()
-        with patch.dict("sys.modules", {"alibabacloud_cms20240330": mock_cms_pkg}):
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
             with patch.object(benchmark, "_get_client", return_value=MagicMock()):
                 with patch.object(benchmark, "_execute_query_request", return_value=[]):
-                    result = AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
+                    result = AgentLoopBenchmark._load_data(benchmark)
         self.assertEqual(result, [])
 
     def test_paginated_stops_on_error(self) -> None:
-        """When a page raises RuntimeError, pagination stops and returns
-        whatever was collected so far."""
         benchmark = self._make_paginated_benchmark()
         first_page = [{"q": "1"}, {"q": "2"}]
         call_count = 0
@@ -464,24 +498,23 @@ class TestAgentLoopBenchmark(unittest.TestCase):
                 return first_page
             raise RuntimeError("simulated API error")
 
-        mock_cms_pkg = MagicMock()
-        with patch.dict("sys.modules", {"alibabacloud_cms20240330": mock_cms_pkg}):
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
             with patch.object(benchmark, "_get_client", return_value=MagicMock()):
                 with patch.object(
                     benchmark,
                     "_execute_query_request",
                     side_effect=side_effect,
                 ):
-                    result = AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
+                    result = AgentLoopBenchmark._load_data(benchmark)
 
         self.assertEqual(result, first_page)
         self.assertEqual(call_count, 2)
 
     def test_paginated_respects_max_rows(self) -> None:
-        """Pagination stops once max_rows records have been collected."""
         benchmark = self._make_paginated_benchmark()
         benchmark.config.max_rows = 5
-        page = [{"i": i} for i in range(3)]  # 3 records per page
+        page = [{"i": i} for i in range(3)]
 
         call_count = 0
 
@@ -490,29 +523,26 @@ class TestAgentLoopBenchmark(unittest.TestCase):
             call_count += 1
             return page
 
-        mock_cms_pkg = MagicMock()
-        with patch.dict("sys.modules", {"alibabacloud_cms20240330": mock_cms_pkg}):
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
             with patch.object(benchmark, "_get_client", return_value=MagicMock()):
                 with patch.object(
                     benchmark,
                     "_execute_query_request",
                     side_effect=side_effect,
                 ):
-                    result = AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
+                    result = AgentLoopBenchmark._load_data(benchmark)
 
-        # Page 1: LIMIT 5 OFFSET 0 → mock returns 3; page 2: LIMIT 2 OFFSET 3
-        # → mock returns 3 but result is truncated to max_rows=5
         self.assertEqual(len(result), 5)
         self.assertEqual(call_count, 2)
 
     def test_paginated_multiple_pages_collected(self) -> None:
-        """All records from multiple pages are concatenated."""
         benchmark = self._make_paginated_benchmark()
         benchmark.config.max_rows = 10
         pages = [
             [{"n": 0}, {"n": 1}, {"n": 2}],
             [{"n": 3}, {"n": 4}, {"n": 5}],
-            [],  # empty → stop
+            [],
         ]
         call_count = 0
 
@@ -522,72 +552,34 @@ class TestAgentLoopBenchmark(unittest.TestCase):
             call_count += 1
             return result_page
 
-        mock_cms_pkg = MagicMock()
-        with patch.dict("sys.modules", {"alibabacloud_cms20240330": mock_cms_pkg}):
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
             with patch.object(benchmark, "_get_client", return_value=MagicMock()):
                 with patch.object(
                     benchmark,
                     "_execute_query_request",
                     side_effect=side_effect,
                 ):
-                    result = AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
+                    result = AgentLoopBenchmark._load_data(benchmark)
 
         self.assertEqual(len(result), 6)
         self.assertEqual(result, pages[0] + pages[1])
         self.assertEqual(call_count, 3)
 
-    def test_paginated_uses_correct_limit_offset_in_query(self) -> None:
-        """Verify the page_query contains correct LIMIT and OFFSET values."""
-        benchmark = self._make_paginated_benchmark()
-        benchmark.config.max_rows = 3
-
-        captured_queries: list[str] = []
-        pages = [[{"n": 0}, {"n": 1}], [{"n": 2}], []]
-
-        call_count = 0
-
-        def side_effect(
-            _client: object,
-            _models: object,
-            query: str,
-        ) -> list[dict]:
-            nonlocal call_count
-            captured_queries.append(query)
-            page = pages[call_count]
-            call_count += 1
-            return page
-
-        mock_cms_pkg = MagicMock()
-        with patch.dict("sys.modules", {"alibabacloud_cms20240330": mock_cms_pkg}):
-            with patch.object(benchmark, "_get_client", return_value=MagicMock()):
-                with patch.object(
-                    benchmark,
-                    "_execute_query_request",
-                    side_effect=side_effect,
-                ):
-                    AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
-
-        # First page: LIMIT 3 OFFSET 0; second: LIMIT 1 OFFSET 2
-        self.assertIn("LIMIT 3", captured_queries[0])
-        self.assertIn("OFFSET 0", captured_queries[0])
-        self.assertIn("LIMIT 1", captured_queries[1])
-        self.assertIn("OFFSET 2", captured_queries[1])
-
     def test_custom_query_uses_single_call(self) -> None:
-        """When config.query is set, _execute_query_request is called exactly once."""
         benchmark = self._make_paginated_benchmark()
         benchmark.config.query = "* | select * from test_dataset"
         records = [{"a": 1}]
 
-        mock_cms_pkg = MagicMock()
-        with patch.dict("sys.modules", {"alibabacloud_cms20240330": mock_cms_pkg}):
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
             with patch.object(benchmark, "_get_client", return_value=MagicMock()):
                 with patch.object(
                     benchmark,
                     "_execute_query_request",
                     return_value=records,
                 ) as mock_exec:
-                    result = AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
+                    result = AgentLoopBenchmark._load_data(benchmark)
 
         mock_exec.assert_called_once()
         self.assertEqual(result, records)
@@ -597,31 +589,31 @@ class TestAgentLoopBenchmark(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_get_client_import_error(self) -> None:
-        with patch.object(AgentLoopBenchmark, "_load_data_from_cms", return_value=[]):
+        with patch.object(AgentLoopBenchmark, "_load_data", return_value=[]):
             benchmark = AgentLoopBenchmark(config=_make_config())
 
         with patch.dict(
             "sys.modules",
             {
-                "alibabacloud_cms20240330": None,
-                "alibabacloud_cms20240330.client": None,
+                "alibabacloud_agentloop20260520": None,
+                "alibabacloud_agentloop20260520.client": None,
                 "alibabacloud_tea_openapi": None,
-                "alibabacloud_tea_openapi.models": None,
+                "alibabacloud_tea_openapi.utils_models": None,
             },
         ):
             with self.assertRaises((ImportError, AttributeError)):
                 benchmark._get_client()
 
-    def test_load_data_from_cms_import_error(self) -> None:
-        with patch.object(AgentLoopBenchmark, "_load_data_from_cms", return_value=[]):
+    def test_load_data_import_error(self) -> None:
+        with patch.object(AgentLoopBenchmark, "_load_data", return_value=[]):
             benchmark = AgentLoopBenchmark(config=_make_config())
 
         with patch.dict(
             "sys.modules",
-            {"alibabacloud_cms20240330": None},
+            {"alibabacloud_agentloop20260520": None},
         ):
             with self.assertRaises((ImportError, AttributeError)):
-                AgentLoopBenchmark._load_data_from_cms(benchmark)  # type: ignore[arg-type]
+                AgentLoopBenchmark._load_data(benchmark)
 
     # ------------------------------------------------------------------
     # validate_credentials propagation
@@ -629,14 +621,14 @@ class TestAgentLoopBenchmark(unittest.TestCase):
 
     def test_invalid_credentials_raise_on_init(self) -> None:
         bad_config = AgentLoopConfig(
-            workspace="ws",
+            agent_space="as",
             dataset="ds",
             region_id="cn-hangzhou",
         )
         bad_config.access_key_id = ""
         bad_config.access_key_secret = ""
 
-        with patch.object(AgentLoopBenchmark, "_load_data_from_cms", return_value=[]):
+        with patch.object(AgentLoopBenchmark, "_load_data", return_value=[]):
             with self.assertRaises(ValueError):
                 AgentLoopBenchmark(config=bad_config)
 
@@ -721,9 +713,12 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         storage = AgentLoopEvaluatorStorage(
             save_dir=self.save_dir,
             config=self.config,
-            experiment_id="abc12345",
         )
-        self.assertIn("experiment_", storage.experiment_name)
+        # Default name falls back to config.effective_experiment_name
+        self.assertEqual(
+            storage.experiment_name,
+            self.config.effective_experiment_name,
+        )
 
     def test_default_metadata_is_local_run(self) -> None:
         storage = AgentLoopEvaluatorStorage(
@@ -756,9 +751,9 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         storage = self._make_storage()
         self.assertEqual(storage.config.project, "my_sls_project")
 
-    def test_project_queried_when_not_provided(self) -> None:
+    def test_project_resolved_when_not_provided(self) -> None:
         config = AgentLoopConfig(
-            workspace="ws",
+            agent_space="as",
             dataset="ds",
             region_id="cn-hangzhou",
             project="",
@@ -767,19 +762,21 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         )
         with patch.object(
             AgentLoopEvaluatorStorage,
-            "_get_workspace_project",
-            return_value="queried_project",
-        ) as mock_get:
+            "_resolve_project",
+        ) as mock_resolve:
+            def set_project() -> None:
+                config.project = "queried_project"
+            mock_resolve.side_effect = lambda: set_project()
             storage = AgentLoopEvaluatorStorage(
                 save_dir=self.save_dir,
                 config=config,
             )
-            mock_get.assert_called_once()
+            mock_resolve.assert_called_once()
         self.assertEqual(storage.config.project, "queried_project")
 
     def test_invalid_credentials_raise_on_init(self) -> None:
         bad_config = AgentLoopConfig(
-            workspace="ws",
+            agent_space="as",
             dataset="ds",
             region_id="cn-hangzhou",
         )
@@ -787,6 +784,12 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         bad_config.access_key_secret = ""
         with self.assertRaises(ValueError):
             AgentLoopEvaluatorStorage(save_dir=self.save_dir, config=bad_config)
+
+    def test_tracking_counters_initialized(self) -> None:
+        storage = self._make_storage()
+        self.assertEqual(storage._completed_tasks, 0)
+        self.assertEqual(storage._failed_tasks, 0)
+        self.assertEqual(storage._total_tasks, 0)
 
     # ------------------------------------------------------------------
     # _build_base_log_contents
@@ -894,6 +897,12 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         storage.save_task_meta("task-b", {"x": 2})
         self.assertEqual(storage._task_meta_cache["task-a"], {"x": 1})
         self.assertEqual(storage._task_meta_cache["task-b"], {"x": 2})
+
+    def test_save_task_meta_increments_total_tasks(self) -> None:
+        storage = self._make_storage()
+        storage.save_task_meta("task-a", {"x": 1})
+        storage.save_task_meta("task-b", {"x": 2})
+        self.assertEqual(storage._total_tasks, 2)
 
     # ------------------------------------------------------------------
     # save_solution_result
@@ -1044,6 +1053,15 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         data_config = json.loads(content_dict["data_config"])
         self.assertEqual(data_config["dataset_item_id"], task_id)
 
+    def test_save_solution_result_tracks_success(self) -> None:
+        storage = self._make_storage()
+        with patch.object(storage, "_put_log"):
+            storage.save_solution_result("t1", "0", self._make_solution_output(success=True))
+            storage.save_solution_result("t2", "0", self._make_solution_output(success=False))
+            storage.save_solution_result("t3", "0", self._make_solution_output(success=True))
+        self.assertEqual(storage._completed_tasks, 2)
+        self.assertEqual(storage._failed_tasks, 1)
+
     # ------------------------------------------------------------------
     # _put_log ImportError
     # ------------------------------------------------------------------
@@ -1065,69 +1083,471 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
                 storage._get_sls_client()
 
     # ------------------------------------------------------------------
-    # _get_cms_client ImportError
+    # _get_agentloop_client ImportError
     # ------------------------------------------------------------------
 
-    def test_get_cms_client_raises_import_error_when_sdk_missing(self) -> None:
+    def test_get_agentloop_client_raises_import_error_when_sdk_missing(self) -> None:
         storage = self._make_storage()
         with patch.dict(
             "sys.modules",
             {
-                "alibabacloud_cms20240330": None,
-                "alibabacloud_cms20240330.client": None,
+                "alibabacloud_agentloop20260520": None,
+                "alibabacloud_agentloop20260520.client": None,
                 "alibabacloud_tea_openapi": None,
-                "alibabacloud_tea_openapi.models": None,
+                "alibabacloud_tea_openapi.utils_models": None,
             },
         ):
             with self.assertRaises((ImportError, AttributeError)):
-                storage._get_cms_client()
+                storage._get_agentloop_client()
 
     # ------------------------------------------------------------------
-    # _get_workspace_project
+    # _resolve_project
     # ------------------------------------------------------------------
 
-    def test_get_workspace_project_success(self) -> None:
+    def test_resolve_project_success(self) -> None:
         storage = self._make_storage()
+        storage.config.project = ""
 
         mock_resp = MagicMock()
         mock_resp.body.sls_project = "found_project"
 
         mock_client = MagicMock()
-        mock_client.get_workspace_with_options.return_value = mock_resp
+        mock_client.get_agent_space.return_value = mock_resp
 
-        mock_util_pkg = MagicMock()
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+                storage._resolve_project()
 
-        with patch.dict("sys.modules", {"alibabacloud_tea_util": mock_util_pkg}):
-            with patch.object(storage, "_get_cms_client", return_value=mock_client):
-                result = storage._get_workspace_project()
+        self.assertEqual(storage.config.project, "found_project")
 
-        self.assertEqual(result, "found_project")
-
-    def test_get_workspace_project_no_sls_project_raises(self) -> None:
+    def test_resolve_project_no_sls_project_raises(self) -> None:
         storage = self._make_storage()
+        storage.config.project = ""
 
         mock_resp = MagicMock()
         mock_resp.body.sls_project = None
 
         mock_client = MagicMock()
-        mock_client.get_workspace_with_options.return_value = mock_resp
+        mock_client.get_agent_space.return_value = mock_resp
 
-        mock_util_pkg = MagicMock()
-
-        with patch.dict("sys.modules", {"alibabacloud_tea_util": mock_util_pkg}):
-            with patch.object(storage, "_get_cms_client", return_value=mock_client):
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
                 with self.assertRaises(ValueError) as ctx:
-                    storage._get_workspace_project()
+                    storage._resolve_project()
         self.assertIn("SLS project", str(ctx.exception))
 
-    def test_get_workspace_project_import_error(self) -> None:
+    def test_resolve_project_import_error(self) -> None:
         storage = self._make_storage()
         with patch.dict(
             "sys.modules",
-            {"alibabacloud_tea_util": None, "alibabacloud_tea_util.models": None},
+            {
+                "alibabacloud_agentloop20260520": None,
+            },
         ):
             with self.assertRaises((ImportError, AttributeError)):
-                storage._get_workspace_project()
+                storage._resolve_project()
+
+    # ------------------------------------------------------------------
+    # upload_experiment_record
+    # ------------------------------------------------------------------
+
+    def test_upload_experiment_record_calls_api(self) -> None:
+        storage = self._make_storage(experiment_id="exp-upload-001")
+        storage._total_tasks = 10
+        storage._completed_tasks = 8
+        storage._failed_tasks = 2
+
+        mock_resp = MagicMock()
+        mock_client = MagicMock()
+        mock_client.upload_experiment.return_value = mock_resp
+
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+                storage.upload_experiment_record({})
+
+        mock_client.upload_experiment.assert_called_once()
+
+    def test_upload_experiment_data_source_format(self) -> None:
+        storage = self._make_storage()
+        captured_kwargs = []
+
+        mock_agentloop_pkg = MagicMock()
+        mock_req_cls = mock_agentloop_pkg.models.UploadExperimentRequest
+        mock_req_cls.side_effect = lambda **kw: MagicMock(**kw)
+
+        mock_client = MagicMock()
+
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+                storage.upload_experiment_record({})
+
+        kwargs = mock_req_cls.call_args[1]
+        ds = kwargs["data_source"]
+        self.assertEqual(ds["type"], "DATASET_FULL")
+        self.assertEqual(ds["datasetId"], "test_dataset")
+        self.assertNotIn("project", ds)
+        self.assertNotIn("data_type", ds)
+        self.assertNotIn("dataset_id", ds)
+
+    def test_upload_experiment_with_evaluators(self) -> None:
+        storage = self._make_storage_with_evaluators([
+            EvaluatorConfig(
+                evaluator_ref="Builtin.accuracy",
+                result_type="score",
+                variable_mapping={"output": "output"},
+            ),
+        ])
+
+        mock_agentloop_pkg = MagicMock()
+        mock_req_cls = mock_agentloop_pkg.models.UploadExperimentRequest
+        mock_req_cls.side_effect = lambda **kw: MagicMock(**kw)
+        mock_eval_cls = mock_agentloop_pkg.models.Evaluator
+        mock_eval_cls.side_effect = lambda **kw: MagicMock(**kw)
+
+        mock_client = MagicMock()
+
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+                storage.upload_experiment_record({})
+
+        kwargs = mock_req_cls.call_args[1]
+        evaluators = kwargs["evaluators"]
+        self.assertIsNotNone(evaluators)
+        self.assertEqual(len(evaluators), 1)
+
+        eval_kwargs = mock_eval_cls.call_args[1]
+        self.assertEqual(eval_kwargs["evaluator_ref"], "Builtin.accuracy")
+        self.assertEqual(eval_kwargs["result_type"], "score")
+
+    def test_upload_experiment_no_evaluators_when_none(self) -> None:
+        storage = self._make_storage()
+
+        mock_agentloop_pkg = MagicMock()
+        mock_req_cls = mock_agentloop_pkg.models.UploadExperimentRequest
+        mock_req_cls.side_effect = lambda **kw: MagicMock(**kw)
+
+        mock_client = MagicMock()
+
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+                storage.upload_experiment_record({})
+
+        kwargs = mock_req_cls.call_args[1]
+        self.assertIsNone(kwargs["evaluators"])
+
+    # ------------------------------------------------------------------
+    # validate_evaluators (on AgentLoopConfig)
+    # ------------------------------------------------------------------
+
+    def _make_storage_with_evaluators(
+        self,
+        evaluators: list[EvaluatorConfig],
+        **kwargs: object,
+    ) -> AgentLoopEvaluatorStorage:
+        """Create storage with evaluators, bypassing init-time validation."""
+        self.config.evaluators = evaluators
+        with patch.object(AgentLoopConfig, "validate_evaluators"):
+            return self._make_storage(**kwargs)
+
+    def _mock_get_evaluator_response(
+        self,
+        variables: list[dict] | None = None,
+        config: dict | None = None,
+    ) -> MagicMock:
+        """Build a mock GetEvaluator response."""
+        mock_resp = MagicMock()
+        if config is not None:
+            mock_resp.body.evaluator.config = config
+        elif variables is not None:
+            mock_resp.body.evaluator.config = {"variables": variables}
+        else:
+            mock_resp.body.evaluator.config = {}
+        return mock_resp
+
+    def _validate_config_with_mock(
+        self,
+        evaluators: list[EvaluatorConfig],
+        mock_client: MagicMock,
+    ) -> None:
+        """Run validate_evaluators on a config with a mocked client."""
+        self.config.evaluators = evaluators
+        self.config._evaluators_validated = False
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(self.config, "_create_agentloop_client", return_value=mock_client):
+                self.config.validate_evaluators()
+
+    def test_validate_evaluators_success(self) -> None:
+        mock_resp = self._mock_get_evaluator_response(variables=[
+            {"name": "input", "description": "Question"},
+            {"name": "output", "description": "Answer"},
+        ])
+        mock_dataset_resp = MagicMock()
+        mock_dataset_resp.body.schema = {"question": MagicMock(), "answer": MagicMock()}
+
+        mock_client = MagicMock()
+        mock_client.get_evaluator.return_value = mock_resp
+        mock_client.get_dataset.return_value = mock_dataset_resp
+
+        self._validate_config_with_mock([
+            EvaluatorConfig(
+                evaluator_ref="Builtin.completeness",
+                variable_mapping={
+                    "input": "experiment_input",
+                    "output": "experiment_output.output",
+                },
+            ),
+        ], mock_client)
+
+        mock_client.get_evaluator.assert_called_once()
+
+    def test_validate_evaluators_not_found_raises(self) -> None:
+        mock_client = MagicMock()
+        mock_client.get_evaluator.side_effect = RuntimeError("404 Not Found")
+
+        self.config.evaluators = [EvaluatorConfig(evaluator_ref="NonExistent")]
+        self.config._evaluators_validated = False
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(self.config, "_create_agentloop_client", return_value=mock_client):
+                with self.assertRaises(ValueError) as ctx:
+                    self.config.validate_evaluators()
+        self.assertIn("NonExistent", str(ctx.exception))
+        self.assertIn("Failed to fetch evaluator", str(ctx.exception))
+
+    def test_validate_evaluators_missing_variables_raises(self) -> None:
+        mock_resp = self._mock_get_evaluator_response(variables=[
+            {"name": "input", "description": "Question"},
+            {"name": "output", "description": "Answer"},
+            {"name": "expected_output", "description": "Ground truth"},
+        ])
+        mock_client = MagicMock()
+        mock_client.get_evaluator.return_value = mock_resp
+
+        self.config.evaluators = [
+            EvaluatorConfig(
+                evaluator_ref="Builtin.correctness",
+                variable_mapping={
+                    "input": "experiment_input",
+                    "output": "experiment_output.output",
+                },
+            ),
+        ]
+        self.config._evaluators_validated = False
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(self.config, "_create_agentloop_client", return_value=mock_client):
+                with self.assertRaises(ValueError) as ctx:
+                    self.config.validate_evaluators()
+        self.assertIn("expected_output", str(ctx.exception))
+
+    def test_validate_evaluators_skipped_when_none(self) -> None:
+        self.config.evaluators = None
+        self.config.validate_evaluators()  # should not raise
+
+    def test_validate_evaluators_no_config_skips_variable_check(self) -> None:
+        mock_resp = MagicMock()
+        mock_resp.body.evaluator.config = None
+        mock_client = MagicMock()
+        mock_client.get_evaluator.return_value = mock_resp
+
+        self._validate_config_with_mock([
+            EvaluatorConfig(evaluator_ref="Builtin.coherence"),
+        ], mock_client)
+
+    def test_validate_evaluators_no_name_raises(self) -> None:
+        self.config.evaluators = [EvaluatorConfig()]
+        self.config._evaluators_validated = False
+        with self.assertRaises(ValueError) as ctx:
+            self.config.validate_evaluators()
+        self.assertIn("evaluator_ref", str(ctx.exception))
+
+    def test_validate_evaluators_import_error(self) -> None:
+        self.config.evaluators = [EvaluatorConfig(evaluator_ref="SomeEval")]
+        self.config._evaluators_validated = False
+        with patch.dict(
+            "sys.modules",
+            {"alibabacloud_agentloop20260520": None},
+        ):
+            with self.assertRaises((ImportError, AttributeError)):
+                self.config.validate_evaluators()
+
+    def test_validate_evaluators_skips_when_already_validated(self) -> None:
+        self.config.evaluators = [EvaluatorConfig(evaluator_ref="X")]
+        self.config._evaluators_validated = True
+        self.config.validate_evaluators()  # should not raise or call API
+
+    # ------------------------------------------------------------------
+    # _validate_mapping_value (on AgentLoopConfig)
+    # ------------------------------------------------------------------
+
+    def test_validate_mapping_value_experiment_output(self) -> None:
+        result = AgentLoopConfig._validate_mapping_value(
+            "experiment_output.output", {"col1"},
+        )
+        self.assertIsNone(result)
+
+    def test_validate_mapping_value_experiment_input(self) -> None:
+        result = AgentLoopConfig._validate_mapping_value(
+            "experiment_input", {"col1"},
+        )
+        self.assertIsNone(result)
+
+    def test_validate_mapping_value_experiment_data_valid_column(self) -> None:
+        result = AgentLoopConfig._validate_mapping_value(
+            "experiment_data.question", {"question", "answer"},
+        )
+        self.assertIsNone(result)
+
+    def test_validate_mapping_value_experiment_data_invalid_column(self) -> None:
+        result = AgentLoopConfig._validate_mapping_value(
+            "experiment_data.nonexistent", {"question", "answer"},
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("nonexistent", result)
+        self.assertIn("does not exist", result)
+
+    def test_validate_mapping_value_experiment_data_missing_column_name(self) -> None:
+        result = AgentLoopConfig._validate_mapping_value(
+            "experiment_data.", {"question"},
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("missing a column name", result)
+
+    def test_validate_mapping_value_invalid_format(self) -> None:
+        result = AgentLoopConfig._validate_mapping_value(
+            "some_random_value", {"col1"},
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("invalid", result)
+
+    # ------------------------------------------------------------------
+    # validate_evaluators — value validation integration
+    # ------------------------------------------------------------------
+
+    def test_validate_evaluators_invalid_mapping_value_raises(self) -> None:
+        mock_resp = self._mock_get_evaluator_response(variables=[
+            {"name": "input", "description": "Question"},
+            {"name": "output", "description": "Answer"},
+        ])
+        mock_dataset_resp = MagicMock()
+        mock_dataset_resp.body.schema = {"question": MagicMock(), "answer": MagicMock()}
+        mock_client = MagicMock()
+        mock_client.get_evaluator.return_value = mock_resp
+        mock_client.get_dataset.return_value = mock_dataset_resp
+
+        self.config.evaluators = [
+            EvaluatorConfig(
+                evaluator_ref="Builtin.correctness",
+                variable_mapping={"input": "experiment_input", "output": "bad_value"},
+            ),
+        ]
+        self.config._evaluators_validated = False
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(self.config, "_create_agentloop_client", return_value=mock_client):
+                with self.assertRaises(ValueError) as ctx:
+                    self.config.validate_evaluators()
+        self.assertIn("bad_value", str(ctx.exception))
+        self.assertIn("invalid", str(ctx.exception))
+
+    def test_validate_evaluators_invalid_column_raises(self) -> None:
+        mock_resp = self._mock_get_evaluator_response(variables=[
+            {"name": "input", "description": "Question"},
+            {"name": "output", "description": "Answer"},
+        ])
+        mock_dataset_resp = MagicMock()
+        mock_dataset_resp.body.schema = {"question": MagicMock(), "answer": MagicMock()}
+        mock_client = MagicMock()
+        mock_client.get_evaluator.return_value = mock_resp
+        mock_client.get_dataset.return_value = mock_dataset_resp
+
+        self.config.evaluators = [
+            EvaluatorConfig(
+                evaluator_ref="Builtin.correctness",
+                variable_mapping={"input": "experiment_input", "output": "experiment_data.nonexistent"},
+            ),
+        ]
+        self.config._evaluators_validated = False
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(self.config, "_create_agentloop_client", return_value=mock_client):
+                with self.assertRaises(ValueError) as ctx:
+                    self.config.validate_evaluators()
+        self.assertIn("nonexistent", str(ctx.exception))
+        self.assertIn("does not exist", str(ctx.exception))
+
+    def test_validate_evaluators_experiment_data_column_valid(self) -> None:
+        mock_resp = self._mock_get_evaluator_response(variables=[
+            {"name": "input", "description": "Question"},
+            {"name": "output", "description": "Answer"},
+            {"name": "expected_output", "description": "Ground truth"},
+        ])
+        mock_dataset_resp = MagicMock()
+        mock_dataset_resp.body.schema = {"question": MagicMock(), "answer": MagicMock()}
+        mock_client = MagicMock()
+        mock_client.get_evaluator.return_value = mock_resp
+        mock_client.get_dataset.return_value = mock_dataset_resp
+
+        self._validate_config_with_mock([
+            EvaluatorConfig(
+                evaluator_ref="Builtin.correctness",
+                variable_mapping={
+                    "input": "experiment_input",
+                    "output": "experiment_output.output",
+                    "expected_output": "experiment_data.answer",
+                },
+            ),
+        ], mock_client)
+
+    def test_validate_evaluators_dataset_columns_lazy_loaded(self) -> None:
+        """get_dataset is not called when evaluator has no variables."""
+        mock_resp = MagicMock()
+        mock_resp.body.evaluator.config = None
+        mock_client = MagicMock()
+        mock_client.get_evaluator.return_value = mock_resp
+
+        self._validate_config_with_mock([
+            EvaluatorConfig(evaluator_ref="Builtin.coherence"),
+        ], mock_client)
+
+        mock_client.get_dataset.assert_not_called()
+
+    # ------------------------------------------------------------------
+    # upload_experiment_record (continued)
+    # ------------------------------------------------------------------
+
+    def test_upload_experiment_record_does_not_raise_on_failure(self) -> None:
+        storage = self._make_storage()
+
+        mock_client = MagicMock()
+        mock_client.upload_experiment.side_effect = RuntimeError("API error")
+
+        mock_agentloop_pkg = MagicMock()
+        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
+            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+                # Should not raise
+                storage.upload_experiment_record({})
+
+    # ------------------------------------------------------------------
+    # save_aggregation_result
+    # ------------------------------------------------------------------
+
+    def test_save_aggregation_result_calls_upload(self) -> None:
+        storage = self._make_storage()
+        aggregation = {"total_tasks": 5}
+
+        with patch.object(storage, "upload_experiment_record") as mock_upload:
+            storage.save_aggregation_result(aggregation)
+
+        mock_upload.assert_called_once_with(aggregation)
+
+        # Also verify local file was saved
+        result_file = os.path.join(self.save_dir, "evaluation_result.json")
+        self.assertTrue(os.path.exists(result_file))
 
 
 if __name__ == "__main__":

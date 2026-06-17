@@ -9,7 +9,7 @@ requires-python = ">=3.10"
 dependencies = [
     "agentscope",
     "aliyun-log-python-sdk",
-    "alibabacloud-cms20240330",
+    "alibabacloud-agentloop20260520",
 ]
 
 [build-system]

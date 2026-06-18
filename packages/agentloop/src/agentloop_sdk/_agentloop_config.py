@@ -193,16 +193,15 @@ class AgentLoopConfig:
 
         Returns ``None`` if valid, or an error description string.
         """
-        if value == "experiment_output.output":
+        if value == "experiment_output":
             return None
         if value == "experiment_input":
             return None
-        if value.startswith("experiment_data."):
-            col = value[len("experiment_data."):]
+        if value.startswith("dataset."):
+            col = value[len("dataset."):]
             if not col:
                 return (
-                    f"'{value}' is missing a column name after "
-                    f"'experiment_data.'"
+                    f"'{value}' is missing a column name after 'dataset.'"
                 )
             if col not in dataset_columns:
                 return (
@@ -211,8 +210,8 @@ class AgentLoopConfig:
                 )
             return None
         return (
-            f"'{value}' is invalid. Must be 'experiment_output.output', "
-            f"'experiment_input', or 'experiment_data.<column>'"
+            f"'{value}' is invalid. Must be 'experiment_output', "
+            f"'experiment_input', or 'dataset.<column>'"
         )
 
     def validate_evaluators(self) -> None:

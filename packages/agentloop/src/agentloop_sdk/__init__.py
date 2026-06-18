@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """AgentLoop SDK: Evaluation tools for the AgentLoop platform."""
 
-from ._agentloop_config import AgentLoopConfig
+from ._agentloop_config import AgentLoopConfig, EvaluatorConfig
 from ._agentloop_benchmark import AgentLoopBenchmark
 from ._evaluator_storage import AgentLoopEvaluatorStorage
 
@@ -20,6 +20,7 @@ from agentscope.evaluate import (
 
 __all__ = [
     "AgentLoopConfig",
+    "EvaluatorConfig",
     "AgentLoopBenchmark",
     "AgentLoopEvaluatorStorage",
     "Task",

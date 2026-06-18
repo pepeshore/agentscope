@@ -10,9 +10,13 @@ import asyncio
 import logging
 from typing import Callable
 
-from agentscope.evaluate import (
+from agentloop_sdk import (
     AgentLoopConfig,
+    AgentLoopBenchmark,
+    AgentLoopEvaluatorStorage,
     EvaluatorConfig,
+)
+from agentscope.evaluate import (
     GeneralEvaluator,
     SolutionOutput,
     Task,
@@ -37,18 +41,6 @@ async def run_agentloop_experiment(
     logger.info("=" * 60)
     logger.info("Running AgentLoop Evaluation")
     logger.info("=" * 60)
-
-    try:
-        from agentscope.evaluate import (
-            AgentLoopBenchmark,
-            AgentLoopEvaluatorStorage,
-        )
-    except ImportError as e:
-        logger.error("Import error: %s", e)
-        logger.error(
-            "Please install the required Agentloop SDKs:\n"
-            "  pip install aliyun-log-python-sdk alibabacloud-agentloop20260520")
-        return
 
     # Validate evaluators before loading dataset (fast-fail)
     config.validate_evaluators()
@@ -110,7 +102,7 @@ async def main() -> None:
         agent_space="default-cn-hangzhou",
         dataset="cc_dataset",
         region_id="cn-hangzhou",
-        experiment_name="Offline—Experiment-Baseline",
+        experiment_name="Offline—Experiment-LocalAgent",
         experiment_config={"agent_name": "LocalAgent"},
         evaluators=[
             EvaluatorConfig(
@@ -118,8 +110,8 @@ async def main() -> None:
                 result_type="score",
                 variable_mapping={
                     "input": "experiment_input",
-                    "output": "experiment_output.output",
-                    "expected_output": "experiment_data.expected_output",
+                    "output": "experiment_output",
+                    "expected_output": "dataset.expected_output",
                 },
             ),
         ],
@@ -128,22 +120,90 @@ async def main() -> None:
 
     await run_agentloop_experiment(
         config=config,
-        solution_fn=http_agent_solution,
+        solution_fn=http_agent_solution_agent,
         result_dir="./results",
     )
 
 # ============ HTTP Agent Solution ============
-async def http_agent_solution(
+AGENT_ENDPOINT = (
+    "https://1108555361245511.agentrun-data.cn-hangzhou.aliyuncs.com"
+    "/agent-runtimes/agent-code-iwukV/endpoints/Default/invocations"
+    "/compatible-mode/v1/responses"
+)
+AGENT_KEY = "ahsudhaofhaohfauihfiau"
+
+
+
+async def http_agent_solution_baseline(
     task: Task,
     pre_hook: Callable,
 ) -> SolutionOutput:
-    output = task.input.get("expected_output")  # call your agent and get the output
+    import httpx
+
+    # Use the dataset's `input` field to replace the request body's `input`
+    output = task.input.get("expected_output", "")
 
     return SolutionOutput(
         success=True,
         output=output,
         trajectory=[],
         meta={
+            "task": task.input
+        },
+    )
+
+async def http_agent_solution_agent(
+    task: Task,
+    pre_hook: Callable,
+) -> SolutionOutput:
+    import httpx
+
+    # Use the dataset's `input` field to replace the request body's `input`
+    output = task.input.get("output", "")
+
+    return SolutionOutput(
+        success=True,
+        output=output,
+        trajectory=[],
+        meta={
+            "task": task.input
+        },
+    )
+
+async def http_agent_solution(
+    task: Task,
+    pre_hook: Callable,
+) -> SolutionOutput:
+    import httpx
+
+    # Use the dataset's `input` field to replace the request body's `input`
+    user_input = task.input.get("input", "")
+    request_body = {"input": user_input, "stream": False}
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                AGENT_ENDPOINT,
+                json=request_body,
+                headers={
+                    "Content-Type": "application/json",
+                    "key": AGENT_KEY,
+                },
+            )
+            resp.raise_for_status()
+            output = resp.json()
+            success = True
+    except Exception as e:
+        logger.error("Agent request failed: %s", e)
+        output = {"error": str(e)}
+        success = False
+
+    return SolutionOutput(
+        success=success,
+        output=output,
+        trajectory=[],
+        meta={
+            "request_body": request_body,
             "task": task.input,
         },
     )

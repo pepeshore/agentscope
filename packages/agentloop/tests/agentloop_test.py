@@ -10,15 +10,18 @@ from unittest.mock import MagicMock, patch, call
 
 # Ensure local source is preferred over any installed version so that
 # newly added modules (not yet published) are importable.
-_SRC_DIR = os.path.join(os.path.dirname(__file__), "..", "src")
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, os.path.abspath(_SRC_DIR))
+_SDK_SRC_DIR = os.path.join(os.path.dirname(__file__), "..", "src")
+if _SDK_SRC_DIR not in sys.path:
+    sys.path.insert(0, os.path.abspath(_SDK_SRC_DIR))
+_AGENTSCOPE_SRC_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "src")
+if _AGENTSCOPE_SRC_DIR not in sys.path:
+    sys.path.insert(0, os.path.abspath(_AGENTSCOPE_SRC_DIR))
 
-from agentscope.evaluate._agentloop_config import AgentLoopConfig, EvaluatorConfig
-from agentscope.evaluate._agentloop_benchmark._agentloop_benchmark import (
+from agentloop_sdk._agentloop_config import AgentLoopConfig, EvaluatorConfig
+from agentloop_sdk._agentloop_benchmark._agentloop_benchmark import (
     AgentLoopBenchmark,
 )
-from agentscope.evaluate._evaluator_storage._agentloop_evaluator_storage import (
+from agentloop_sdk._evaluator_storage._agentloop_evaluator_storage import (
     AgentLoopEvaluatorStorage,
     EXPERIMENT_LOGSTORE,
 )
@@ -968,8 +971,9 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         self.assertEqual(content_dict["task_id"], task_id)
         self.assertEqual(content_dict["repeat_id"], repeat_id)
         self.assertIn("experiment_output", content_dict)
+        self.assertIn("experiment_input", content_dict)
         self.assertIn("data_config", content_dict)
-        self.assertIn("experiment_data", content_dict)
+        self.assertNotIn("experiment_data", content_dict)
 
     def test_save_solution_result_experiment_output_content(self) -> None:
         storage = self._make_storage()
@@ -986,9 +990,31 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
             )
 
         content_dict = dict(captured[0])
-        experiment_output = json.loads(content_dict["experiment_output"])
-        self.assertFalse(experiment_output["success"])
-        self.assertEqual(experiment_output["output"], "error_output")
+        # experiment_output is now a top-level string. For failed tasks with
+        # no structured error meta, it should be prefixed with "ERROR:".
+        self.assertEqual(
+            content_dict["experiment_output"],
+            "ERROR: UnknownError - Unknown error",
+        )
+
+    def test_save_solution_result_experiment_output_success_is_raw_string(self) -> None:
+        storage = self._make_storage()
+        task_id = "task-sol-004b"
+        repeat_id = "0"
+        output = self._make_solution_output(success=True, output="hello world")
+
+        captured: list[list[tuple[str, str]]] = []
+        with patch.object(storage, "_put_log", side_effect=captured.append):
+            storage.save_solution_result(
+                task_id=task_id,
+                repeat_id=repeat_id,
+                output=output,
+            )
+
+        content_dict = dict(captured[0])
+        # For successful tasks with str output, experiment_output is the raw
+        # string, not a JSON wrapper.
+        self.assertEqual(content_dict["experiment_output"], "hello world")
 
     def test_save_solution_result_uses_cached_task_meta(self) -> None:
         storage = self._make_storage()
@@ -1008,8 +1034,14 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
             )
 
         content_dict = dict(captured[0])
-        experiment_data = json.loads(content_dict["experiment_data"])
-        self.assertEqual(experiment_data, meta["input"])
+        # experiment_input is the rendered input as a JSON string.
+        self.assertEqual(
+            json.loads(content_dict["experiment_input"]),
+            meta["input"],
+        )
+        # Dataset columns are flattened as top-level dataset.<col> fields.
+        self.assertEqual(content_dict["dataset.question"], "What is AI?")
+        self.assertEqual(content_dict["dataset.id"], "q-999")
 
         data_config = json.loads(content_dict["data_config"])
         self.assertEqual(data_config["dataset_item_id"], "q-999")
@@ -1297,7 +1329,7 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
                 evaluator_ref="Builtin.completeness",
                 variable_mapping={
                     "input": "experiment_input",
-                    "output": "experiment_output.output",
+                    "output": "experiment_output",
                 },
             ),
         ], mock_client)
@@ -1332,7 +1364,7 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
                 evaluator_ref="Builtin.correctness",
                 variable_mapping={
                     "input": "experiment_input",
-                    "output": "experiment_output.output",
+                    "output": "experiment_output",
                 },
             ),
         ]
@@ -1386,7 +1418,7 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
 
     def test_validate_mapping_value_experiment_output(self) -> None:
         result = AgentLoopConfig._validate_mapping_value(
-            "experiment_output.output", {"col1"},
+            "experiment_output", {"col1"},
         )
         self.assertIsNone(result)
 
@@ -1396,23 +1428,23 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         )
         self.assertIsNone(result)
 
-    def test_validate_mapping_value_experiment_data_valid_column(self) -> None:
+    def test_validate_mapping_value_dataset_valid_column(self) -> None:
         result = AgentLoopConfig._validate_mapping_value(
-            "experiment_data.question", {"question", "answer"},
+            "dataset.question", {"question", "answer"},
         )
         self.assertIsNone(result)
 
-    def test_validate_mapping_value_experiment_data_invalid_column(self) -> None:
+    def test_validate_mapping_value_dataset_invalid_column(self) -> None:
         result = AgentLoopConfig._validate_mapping_value(
-            "experiment_data.nonexistent", {"question", "answer"},
+            "dataset.nonexistent", {"question", "answer"},
         )
         self.assertIsNotNone(result)
         self.assertIn("nonexistent", result)
         self.assertIn("does not exist", result)
 
-    def test_validate_mapping_value_experiment_data_missing_column_name(self) -> None:
+    def test_validate_mapping_value_dataset_missing_column_name(self) -> None:
         result = AgentLoopConfig._validate_mapping_value(
-            "experiment_data.", {"question"},
+            "dataset.", {"question"},
         )
         self.assertIsNotNone(result)
         self.assertIn("missing a column name", result)
@@ -1468,7 +1500,7 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         self.config.evaluators = [
             EvaluatorConfig(
                 evaluator_ref="Builtin.correctness",
-                variable_mapping={"input": "experiment_input", "output": "experiment_data.nonexistent"},
+                variable_mapping={"input": "experiment_input", "output": "dataset.nonexistent"},
             ),
         ]
         self.config._evaluators_validated = False
@@ -1497,8 +1529,8 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
                 evaluator_ref="Builtin.correctness",
                 variable_mapping={
                     "input": "experiment_input",
-                    "output": "experiment_output.output",
-                    "expected_output": "experiment_data.answer",
+                    "output": "experiment_output",
+                    "expected_output": "dataset.answer",
                 },
             ),
         ], mock_client)

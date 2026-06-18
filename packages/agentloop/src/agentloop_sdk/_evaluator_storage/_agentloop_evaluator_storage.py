@@ -298,9 +298,11 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
         """Save the solution result to both local file and SLS.
 
         This method writes the complete experiment record to SLS, including:
-        - experiment_data: from cached task meta
         - data_config: dataset configuration
-        - experiment_result: the solution output
+        - experiment_input: rendered input as a top-level string
+        - experiment_output: model/agent returned content as a top-level
+          string (or ``"ERROR: <type> - <message>"`` for failed tasks)
+        - dataset.<col>: dataset item columns flattened as top-level fields
 
         Args:
             task_id (`str`):
@@ -332,17 +334,19 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 task_id=task_id,
                 repeat_id=repeat_id,
             )
-            # Get cached experiment_data
-            experiment_data = self._task_meta_cache.get(task_id, {})
+            # Cached task meta carries the dataset row under "input".
+            task_meta = self._task_meta_cache.get(task_id, {})
+            input_data = task_meta.get("input", {}) if isinstance(task_meta, dict) else {}
 
             # Add data_config field
             data_config = {
                 "data_type": "dataset",
                 "project": self.config.project,
                 "dataset_id": self.config.dataset,
-                "dataset_item_id": experiment_data.get("input", {}).get(
-                    "id",
-                    task_id,
+                "dataset_item_id": (
+                    input_data.get("id", task_id)
+                    if isinstance(input_data, dict)
+                    else task_id
                 ),
             }
             contents.append(
@@ -352,31 +356,68 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 ),
             )
 
-            # Add experiment_data field
-            contents.append(
-                (
-                    "experiment_data",
-                    json.dumps(
-                        experiment_data.get("input", {}),
+            # experiment_input: top-level rendered input.
+            # For "model" experiments the input is expected to be a message
+            # list; for "agent" experiments it is the rendered request body.
+            # Both are serialized as a JSON string here.
+            if isinstance(input_data, (dict, list)):
+                experiment_input = json.dumps(
+                    input_data,
+                    ensure_ascii=False,
+                    default=str,
+                )
+            elif input_data == "" or input_data is None:
+                experiment_input = ""
+            else:
+                experiment_input = str(input_data)
+            contents.append(("experiment_input", experiment_input))
+
+            # experiment_output: top-level string with the returned content,
+            # or "ERROR: <type> - <message>" for failed tasks.
+            if output.success:
+                output_value = output.output
+                if isinstance(output_value, str):
+                    experiment_output = output_value
+                else:
+                    experiment_output = json.dumps(
+                        output_value,
                         ensure_ascii=False,
                         default=str,
-                    ),
-                ),
-            )
+                    )
+            else:
+                error_meta = output.meta
+                error_type = (
+                    error_meta.get("error_type") or "UnknownError"
+                    if isinstance(error_meta, dict)
+                    else "UnknownError"
+                )
+                error_message = (
+                    error_meta.get("error_message") or "Unknown error"
+                    if isinstance(error_meta, dict)
+                    else "Unknown error"
+                )
+                experiment_output = f"ERROR: {error_type} - {error_message}"
+            contents.append(("experiment_output", experiment_output))
 
-            # Add experiment_result field with output data
-            result_data = {
-                "success": output.success,
-                "output": output.output,
-                "trajectory": output.trajectory,
-                "meta": output.meta,
-            }
-            contents.append(
-                (
-                    "experiment_output",
-                    json.dumps(result_data, ensure_ascii=False, default=str),
-                ),
-            )
+            # Flatten dataset columns to top-level dataset.<col> fields.
+            # List / dict values are JSON-serialized; scalars are stringified.
+            if isinstance(input_data, dict):
+                for col, value in input_data.items():
+                    field_name = f"dataset.{col}"
+                    if isinstance(value, (list, dict)):
+                        contents.append(
+                            (
+                                field_name,
+                                json.dumps(
+                                    value,
+                                    ensure_ascii=False,
+                                    default=str,
+                                ),
+                            ),
+                        )
+                    else:
+                        contents.append((field_name, str(value)))
+
             self._put_log(contents)
         except Exception as e:
             logger.warning(
@@ -438,6 +479,10 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 "pip install alibabacloud-agentloop20260520",
             ) from e
 
+        # Delay before uploading to give SLS time to flush all task logs,
+        # so the platform can aggregate them when the record is processed.
+        time.sleep(10)
+
         client = self._get_agentloop_client()
 
         data_source = {
@@ -466,6 +511,8 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
             total_tasks=self._total_tasks,
             completed_tasks=self._completed_tasks,
             failed_tasks=self._failed_tasks,
+            executed_at=self.experiment_start_time,
+            completed_at=int(time.time() * 1000),
             data_source=data_source,
             experiment_config=agentloop_models.ExperimentConfig(
                 name=self.experiment_name,

@@ -7,6 +7,7 @@ from dataclasses import asdict
 from typing import Callable, Coroutine, Any
 from collections import defaultdict
 
+from ..._logging import logger
 from .._solution import SolutionOutput
 from .._task import Task
 from .._benchmark_base import BenchmarkBase
@@ -228,17 +229,10 @@ class EvaluatorBase:
                             task.id
                         ] = eval_result.result
 
-            print("Repeat ID:", repeat_id)
+            logger.info("Repeat ID: %s", repeat_id)
 
             for metric, value in current_repeat["metrics"].items():
-                print("\tMetric:", metric)
-                print("\t\tType:", value["type"])
-                print("\t\tInvolved tasks:", value["involved_tasks"])
-                print("\t\tCompleted tasks:", value["completed_tasks"])
-                print("\t\tIncomplete tasks:", value["incomplete_tasks"])
-
                 if value["type"] == MetricType.CATEGORY:
-                    # Count the distribution
                     for category, task_ids in value["distribution"].items():
                         value["aggregation"][category] = (
                             len(task_ids) * 1.0 / value["involved_tasks"]
@@ -252,13 +246,21 @@ class EvaluatorBase:
                         "min": min(scores),
                     }
 
-                print(
-                    "\t\tAggregation:",
-                    json.dumps(
-                        value["aggregation"],
-                        indent=4,
-                        ensure_ascii=False,
-                    ).replace("\n", "\n\t\t"),
+                agg_str = json.dumps(
+                    value["aggregation"],
+                    indent=4,
+                    ensure_ascii=False,
+                ).replace("\n", "\n\t\t")
+                logger.info(
+                    "Metric: %s | Type: %s | "
+                    "Involved: %d | Completed: %d | Incomplete: %d\n"
+                    "\t\tAggregation: %s",
+                    metric,
+                    value["type"],
+                    value["involved_tasks"],
+                    value["completed_tasks"],
+                    value["incomplete_tasks"],
+                    agg_str,
                 )
 
             meta_info["repeats"][repeat_id] = current_repeat

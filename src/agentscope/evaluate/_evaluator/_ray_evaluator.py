@@ -3,6 +3,7 @@
 import asyncio
 from typing import Callable, Awaitable, Coroutine, Any
 
+from ._general_evaluator import _ProgressBar
 from ._in_memory_exporter import _InMemoryExporter
 from .._benchmark_base import BenchmarkBase
 from .._evaluator._evaluator_base import EvaluatorBase
@@ -259,9 +260,19 @@ class RayEvaluator(EvaluatorBase):
                     ),
                 )
 
-        # Await all the futures
+        # Await all the futures with progress bar
         if futures:
-            await asyncio.gather(*futures)
+            import ray
+
+            with _ProgressBar(total=len(futures)) as pbar:
+                remaining = list(futures)
+                while remaining:
+                    ready, remaining = ray.wait(
+                        remaining,
+                        num_returns=1,
+                    )
+                    await asyncio.gather(*ready)
+                    pbar.update(len(ready))
 
         # Aggregate the results
         await self.aggregate()

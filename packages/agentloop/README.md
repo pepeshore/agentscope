@@ -5,7 +5,7 @@ AgentLoop SDK 是阿里云 [AgentLoop 平台](https://cmsnext.console.aliyun.com
 ## 安装
 
 ```bash
-pip install agentloop_sdk
+pip install -i https://test.pypi.org/simple/ agentloop_sdk
 ```
 
 ## 快速开始

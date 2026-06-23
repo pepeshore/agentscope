@@ -4,9 +4,11 @@
 from ._evaluator_base import EvaluatorBase
 from ._ray_evaluator import RayEvaluator
 from ._general_evaluator import GeneralEvaluator
+from ._parallel_evaluator import ParallelEvaluator
 
 __all__ = [
     "EvaluatorBase",
     "RayEvaluator",
     "GeneralEvaluator",
+    "ParallelEvaluator",
 ]

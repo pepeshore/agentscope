@@ -18,8 +18,6 @@ class AgentLoopBenchmark(BenchmarkBase):
     AgentLoop by specifying the agent space and dataset names. The data is
     queried using the AgentLoop SDK and converted to Task objects.
 
-    Install the required SDK:
-        pip install alibabacloud-agentloop20260520
     """
 
     def __init__(
@@ -82,21 +80,11 @@ class AgentLoopBenchmark(BenchmarkBase):
             `Client`:
                 The AgentLoop client instance.
 
-        Raises:
-            `ImportError`:
-                If the alibabacloud-agentloop20260520 package is not installed.
         """
-        try:
-            from alibabacloud_agentloop20260520.client import Client
-            from alibabacloud_tea_openapi import (
-                utils_models as open_api_util_models,
-            )
-        except ImportError as e:
-            raise ImportError(
-                "The alibabacloud-agentloop20260520 package is required for "
-                "AgentLoopBenchmark. Install it with: "
-                "pip install alibabacloud-agentloop20260520",
-            ) from e
+        from .._vendor.alibabacloud_agentloop20260520.client import Client
+        from alibabacloud_tea_openapi import (
+            utils_models as open_api_util_models,
+        )
 
         client_config = open_api_util_models.Config(
             access_key_id=self.config.access_key_id,
@@ -170,9 +158,12 @@ class AgentLoopBenchmark(BenchmarkBase):
                 req,
             )
         except Exception as e:
+            from .._agentloop_config import _format_api_error
+
             raise RuntimeError(
                 f"Failed to query dataset '{self.config.dataset}' "
-                f"in agent space '{agent_space}': {e}",
+                f"in agent space '{agent_space}': "
+                f"{_format_api_error(e)}",
             ) from e
 
         logger.debug(json.dumps(resp.to_map(), default=str, indent=2))
@@ -197,32 +188,23 @@ class AgentLoopBenchmark(BenchmarkBase):
                 A list of data records loaded from AgentLoop.
 
         Raises:
-            `ImportError`:
-                If the alibabacloud-agentloop20260520 package is not installed.
             `RuntimeError`:
                 If the API call fails (single-query mode only).
         """
-        try:
-            from alibabacloud_agentloop20260520 import (
-                models as agentloop_models,
-            )
-        except ImportError as e:
-            raise ImportError(
-                "The alibabacloud-agentloop20260520 package is required for "
-                "AgentLoopBenchmark. Install it with: "
-                "pip install alibabacloud-agentloop20260520",
-            ) from e
+        from .._vendor.alibabacloud_agentloop20260520 import (
+            models as agentloop_models,
+        )
 
         client = self._get_client()
         agent_space = self.config.agent_space
 
-        logger.info(
+        logger.debug(
             f"AgentLoop agent_space: {agent_space}, "
             f"dataset: {self.config.dataset}",
         )
 
         if self.config.query:
-            logger.info(f"Custom query: {self.config.query}")
+            logger.debug(f"Custom query: {self.config.query}")
             return self._execute_query_request(
                 client,
                 agentloop_models,
@@ -242,7 +224,7 @@ class AgentLoopBenchmark(BenchmarkBase):
                 f"* | select * from `{escaped_dataset}` "
                 f"ORDER BY id LIMIT {offset}, {page_size}"
             )
-            logger.info(
+            logger.debug(
                 f"Paginated query "
                 f"(offset={offset}, limit={page_size}): {page_query}",
             )
@@ -261,7 +243,7 @@ class AgentLoopBenchmark(BenchmarkBase):
                 break
 
             if not page:
-                logger.info(
+                logger.debug(
                     f"Empty response at offset {offset}, stopping pagination.",
                 )
                 break
@@ -271,7 +253,7 @@ class AgentLoopBenchmark(BenchmarkBase):
                 dataset = dataset[: self.config.max_rows]
                 break
 
-        logger.info(f"Loaded {len(dataset)} records from AgentLoop.")
+        logger.debug(f"Loaded {len(dataset)} records from AgentLoop.")
 
         ids = [r.get("id", "") for r in dataset]
         unique_ids = set(ids)
@@ -284,10 +266,6 @@ class AgentLoopBenchmark(BenchmarkBase):
                 f"Duplicate records detected! Total: {len(ids)}, "
                 f"Unique: {len(unique_ids)}, "
                 f"Duplicates: {dups}",
-            )
-        else:
-            logger.info(
-                f"No duplicate records. {len(unique_ids)} unique IDs.",
             )
 
         return dataset

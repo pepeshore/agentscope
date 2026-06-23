@@ -27,6 +27,9 @@ from agentloop_sdk._evaluator_storage._agentloop_evaluator_storage import (
 )
 from agentscope.evaluate._task import Task
 from agentscope.evaluate._solution import SolutionOutput
+from agentloop_sdk._vendor.alibabacloud_agentloop20260520 import (
+    models as _vendor_models,
+)
 
 
 # ============================================================
@@ -607,17 +610,6 @@ class TestAgentLoopBenchmark(unittest.TestCase):
             with self.assertRaises((ImportError, AttributeError)):
                 benchmark._get_client()
 
-    def test_load_data_import_error(self) -> None:
-        with patch.object(AgentLoopBenchmark, "_load_data", return_value=[]):
-            benchmark = AgentLoopBenchmark(config=_make_config())
-
-        with patch.dict(
-            "sys.modules",
-            {"alibabacloud_agentloop20260520": None},
-        ):
-            with self.assertRaises((ImportError, AttributeError)):
-                AgentLoopBenchmark._load_data(benchmark)
-
     # ------------------------------------------------------------------
     # validate_credentials propagation
     # ------------------------------------------------------------------
@@ -1170,17 +1162,6 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
                     storage._resolve_project()
         self.assertIn("SLS project", str(ctx.exception))
 
-    def test_resolve_project_import_error(self) -> None:
-        storage = self._make_storage()
-        with patch.dict(
-            "sys.modules",
-            {
-                "alibabacloud_agentloop20260520": None,
-            },
-        ):
-            with self.assertRaises((ImportError, AttributeError)):
-                storage._resolve_project()
-
     # ------------------------------------------------------------------
     # upload_experiment_record
     # ------------------------------------------------------------------
@@ -1195,26 +1176,28 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
         mock_client = MagicMock()
         mock_client.upload_experiment.return_value = mock_resp
 
-        mock_agentloop_pkg = MagicMock()
-        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
-            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
-                storage.upload_experiment_record({})
+        with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+            storage.upload_experiment_record({})
 
         mock_client.upload_experiment.assert_called_once()
 
     def test_upload_experiment_data_source_format(self) -> None:
         storage = self._make_storage()
-        captured_kwargs = []
-
-        mock_agentloop_pkg = MagicMock()
-        mock_req_cls = mock_agentloop_pkg.models.UploadExperimentRequest
-        mock_req_cls.side_effect = lambda **kw: MagicMock(**kw)
 
         mock_client = MagicMock()
 
-        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
-            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
-                storage.upload_experiment_record({})
+        with patch.object(
+            _vendor_models,
+            "UploadExperimentRequest",
+            side_effect=lambda **kw: MagicMock(**kw),
+        ) as mock_req_cls, \
+            patch.object(
+            _vendor_models,
+            "ExperimentConfig",
+            side_effect=lambda **kw: MagicMock(**kw),
+        ), \
+            patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+            storage.upload_experiment_record({})
 
         kwargs = mock_req_cls.call_args[1]
         ds = kwargs["data_source"]
@@ -1233,17 +1216,25 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
             ),
         ])
 
-        mock_agentloop_pkg = MagicMock()
-        mock_req_cls = mock_agentloop_pkg.models.UploadExperimentRequest
-        mock_req_cls.side_effect = lambda **kw: MagicMock(**kw)
-        mock_eval_cls = mock_agentloop_pkg.models.Evaluator
-        mock_eval_cls.side_effect = lambda **kw: MagicMock(**kw)
-
         mock_client = MagicMock()
 
-        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
-            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
-                storage.upload_experiment_record({})
+        with patch.object(
+            _vendor_models,
+            "UploadExperimentRequest",
+            side_effect=lambda **kw: MagicMock(**kw),
+        ) as mock_req_cls, \
+            patch.object(
+            _vendor_models,
+            "Evaluator",
+            side_effect=lambda **kw: MagicMock(**kw),
+        ) as mock_eval_cls, \
+            patch.object(
+            _vendor_models,
+            "ExperimentConfig",
+            side_effect=lambda **kw: MagicMock(**kw),
+        ), \
+            patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+            storage.upload_experiment_record({})
 
         kwargs = mock_req_cls.call_args[1]
         evaluators = kwargs["evaluators"]
@@ -1257,15 +1248,20 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
     def test_upload_experiment_no_evaluators_when_none(self) -> None:
         storage = self._make_storage()
 
-        mock_agentloop_pkg = MagicMock()
-        mock_req_cls = mock_agentloop_pkg.models.UploadExperimentRequest
-        mock_req_cls.side_effect = lambda **kw: MagicMock(**kw)
-
         mock_client = MagicMock()
 
-        with patch.dict("sys.modules", {"alibabacloud_agentloop20260520": mock_agentloop_pkg}):
-            with patch.object(storage, "_get_agentloop_client", return_value=mock_client):
-                storage.upload_experiment_record({})
+        with patch.object(
+            _vendor_models,
+            "UploadExperimentRequest",
+            side_effect=lambda **kw: MagicMock(**kw),
+        ) as mock_req_cls, \
+            patch.object(
+            _vendor_models,
+            "ExperimentConfig",
+            side_effect=lambda **kw: MagicMock(**kw),
+        ), \
+            patch.object(storage, "_get_agentloop_client", return_value=mock_client):
+            storage.upload_experiment_record({})
 
         kwargs = mock_req_cls.call_args[1]
         self.assertIsNone(kwargs["evaluators"])
@@ -1397,15 +1393,6 @@ class TestAgentLoopEvaluatorStorage(unittest.TestCase):
             self.config.validate_evaluators()
         self.assertIn("evaluator_ref", str(ctx.exception))
 
-    def test_validate_evaluators_import_error(self) -> None:
-        self.config.evaluators = [EvaluatorConfig(evaluator_ref="SomeEval")]
-        self.config._evaluators_validated = False
-        with patch.dict(
-            "sys.modules",
-            {"alibabacloud_agentloop20260520": None},
-        ):
-            with self.assertRaises((ImportError, AttributeError)):
-                self.config.validate_evaluators()
 
     def test_validate_evaluators_skips_when_already_validated(self) -> None:
         self.config.evaluators = [EvaluatorConfig(evaluator_ref="X")]

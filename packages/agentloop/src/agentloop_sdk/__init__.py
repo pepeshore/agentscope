@@ -4,6 +4,14 @@
 from ._agentloop_config import AgentLoopConfig, EvaluatorConfig
 from ._agentloop_benchmark import AgentLoopBenchmark
 from ._evaluator_storage import AgentLoopEvaluatorStorage
+from ._solutions import (
+    HttpRequestSpec,
+    http_solution,
+    http_solution_with,
+    command_solution,
+    command_solution_with,
+)
+from ._experiment import run_experiment, run_experiment_parallel
 
 from agentscope.evaluate import (
     Task,
@@ -12,6 +20,7 @@ from agentscope.evaluate import (
     EvaluatorStorageBase,
     FileEvaluatorStorage,
     GeneralEvaluator,
+    ParallelEvaluator,
     RayEvaluator,
     MetricBase,
     MetricResult,
@@ -23,12 +32,20 @@ __all__ = [
     "EvaluatorConfig",
     "AgentLoopBenchmark",
     "AgentLoopEvaluatorStorage",
+    "HttpRequestSpec",
+    "http_solution",
+    "http_solution_with",
+    "command_solution",
+    "command_solution_with",
+    "run_experiment",
+    "run_experiment_parallel",
     "Task",
     "SolutionOutput",
     "BenchmarkBase",
     "EvaluatorStorageBase",
     "FileEvaluatorStorage",
     "GeneralEvaluator",
+    "ParallelEvaluator",
     "RayEvaluator",
     "MetricBase",
     "MetricResult",

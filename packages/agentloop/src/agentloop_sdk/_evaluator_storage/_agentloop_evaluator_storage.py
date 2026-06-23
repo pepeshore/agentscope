@@ -92,15 +92,22 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
 
         # Experiment identification
         self.experiment_id = experiment_id or str(uuid.uuid4())
-        self.experiment_name = (
-            experiment_name
-            or self.config.effective_experiment_name
+        from datetime import datetime
+        _ts = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+        self._base_experiment_name = (
+            experiment_name or self.config.effective_experiment_name
         )
+        self.experiment_name = f"{self._base_experiment_name} {_ts}"
         self.experiment_type = experiment_type
         self.experiment_start_time = int(time.time() * 1000)
-        self.experiment_metadata = experiment_metadata or {
+        self.experiment_metadata = {
             "run_env": "local_run",
+            "record_id": self.experiment_id,
+            "record_name": self.experiment_name,
+            "experiment_group_name": self.experiment_name,
         }
+        if experiment_metadata:
+            self.experiment_metadata.update(experiment_metadata)
         self.experiment_config = (
             experiment_config
             if experiment_config is not None
@@ -126,17 +133,10 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
         if self._agentloop_client is not None:
             return self._agentloop_client
 
-        try:
-            from alibabacloud_agentloop20260520.client import Client
-            from alibabacloud_tea_openapi import (
-                utils_models as open_api_util_models,
-            )
-        except ImportError as e:
-            raise ImportError(
-                "The alibabacloud-agentloop20260520 package is required for "
-                "AgentLoopEvaluatorStorage. Install it with: "
-                "pip install alibabacloud-agentloop20260520",
-            ) from e
+        from .._vendor.alibabacloud_agentloop20260520.client import Client
+        from alibabacloud_tea_openapi import (
+            utils_models as open_api_util_models,
+        )
 
         client_config = open_api_util_models.Config(
             access_key_id=self.config.access_key_id,
@@ -157,24 +157,26 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
             `ValueError`:
                 If the SLS project cannot be resolved.
         """
-        try:
-            from alibabacloud_agentloop20260520 import (
-                models as agentloop_models,
-            )
-        except ImportError as e:
-            raise ImportError(
-                "The alibabacloud-agentloop20260520 package is required for "
-                "AgentLoopEvaluatorStorage. Install it with: "
-                "pip install alibabacloud-agentloop20260520",
-            ) from e
+        from .._vendor.alibabacloud_agentloop20260520 import (
+            models as agentloop_models,
+        )
+
+        from .._agentloop_config import _format_api_error
 
         client = self._get_agentloop_client()
         req = agentloop_models.GetAgentSpaceRequest()
 
-        resp = client.get_agent_space(
-            self.config.agent_space,
-            req,
-        )
+        try:
+            resp = client.get_agent_space(
+                self.config.agent_space,
+                req,
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Failed to get agent space "
+                f"'{self.config.agent_space}': "
+                f"{_format_api_error(e)}",
+            ) from e
         logger.debug(
             f"AgentLoop get_agent_space response: "
             f"{json.dumps(resp.to_map(), default=str, indent=2)}",
@@ -183,10 +185,9 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
         body = resp.body
         if not body or not body.sls_project:
             raise ValueError(
-                f"Failed to get SLS project for agent space "
-                f"'{self.config.agent_space}'. "
-                "Please ensure the agent space exists and has SLS "
-                "configured, or provide 'project' directly in the config.",
+                f"Agent space '{self.config.agent_space}' has no SLS "
+                f"project configured. Provide 'project' directly in "
+                f"the config.",
             )
 
         self.config.project = body.sls_project
@@ -356,20 +357,24 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 ),
             )
 
-            # experiment_input: top-level rendered input.
-            # For "model" experiments the input is expected to be a message
-            # list; for "agent" experiments it is the rendered request body.
-            # Both are serialized as a JSON string here.
-            if isinstance(input_data, (dict, list)):
+            # experiment_input: if the solution provides an explicit value
+            # via meta["experiment_input"] (e.g. the HTTP request body),
+            # use that; otherwise fall back to the raw dataset row.
+            output_meta = output.meta if isinstance(output.meta, dict) else {}
+            raw_input = output_meta.get("experiment_input")
+            if raw_input is None:
+                raw_input = input_data
+
+            if isinstance(raw_input, (dict, list)):
                 experiment_input = json.dumps(
-                    input_data,
+                    raw_input,
                     ensure_ascii=False,
                     default=str,
                 )
-            elif input_data == "" or input_data is None:
+            elif raw_input == "" or raw_input is None:
                 experiment_input = ""
             else:
-                experiment_input = str(input_data)
+                experiment_input = str(raw_input)
             contents.append(("experiment_input", experiment_input))
 
             # experiment_output: top-level string with the returned content,
@@ -398,6 +403,11 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 )
                 experiment_output = f"ERROR: {error_type} - {error_message}"
             contents.append(("experiment_output", experiment_output))
+
+            # Add traceId from solution meta if available.
+            trace_id = output_meta.get("traceId")
+            if trace_id:
+                contents.append(("traceId", str(trace_id)))
 
             # Flatten dataset columns to top-level dataset.<col> fields.
             # List / dict values are JSON-serialized; scalars are stringified.
@@ -468,16 +478,9 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
             aggregation_result (`dict`):
                 The aggregated evaluation results.
         """
-        try:
-            from alibabacloud_agentloop20260520 import (
-                models as agentloop_models,
-            )
-        except ImportError as e:
-            raise ImportError(
-                "The alibabacloud-agentloop20260520 package is required for "
-                "AgentLoopEvaluatorStorage. Install it with: "
-                "pip install alibabacloud-agentloop20260520",
-            ) from e
+        from .._vendor.alibabacloud_agentloop20260520 import (
+            models as agentloop_models,
+        )
 
         # Delay before uploading to give SLS time to flush all task logs,
         # so the platform can aggregate them when the record is processed.
@@ -508,6 +511,7 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
 
         req = agentloop_models.UploadExperimentRequest(
             record_id=self.experiment_id,
+            record_name=self.experiment_name,
             total_tasks=self._total_tasks,
             completed_tasks=self._completed_tasks,
             failed_tasks=self._failed_tasks,
@@ -515,7 +519,7 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
             completed_at=int(time.time() * 1000),
             data_source=data_source,
             experiment_config=agentloop_models.ExperimentConfig(
-                name=self.experiment_name,
+                name=self._base_experiment_name,
             ),
             evaluators=evaluator_models,
         )
@@ -531,9 +535,11 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 f"{json.dumps(resp.to_map(), default=str, indent=2)}",
             )
         except Exception as e:
+            from .._agentloop_config import _format_api_error
+
             logger.warning(
                 f"Failed to upload experiment record "
-                f"'{self.experiment_id}' to AgentLoop: {e}",
+                f"'{self.experiment_id}': {_format_api_error(e)}",
             )
 
     def save_aggregation_result(

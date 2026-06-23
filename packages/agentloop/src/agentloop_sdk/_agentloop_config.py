@@ -2,6 +2,16 @@
 """Configuration class for AgentLoop components."""
 import os
 from dataclasses import dataclass, field
+from typing import Any
+
+
+def _format_api_error(e: Exception) -> str:
+    """Extract a concise error description from a Tea SDK exception."""
+    code = getattr(e, "code", None)
+    message = getattr(e, "message", None)
+    if code and message:
+        return f"[{code}] {message}"
+    return str(e)
 
 
 @dataclass
@@ -124,6 +134,15 @@ class AgentLoopConfig:
 
     def __post_init__(self) -> None:
         """Post-initialization to load credentials and set defaults."""
+        missing = [
+            name
+            for name in ("agent_space", "dataset", "region_id")
+            if not getattr(self, name)
+        ]
+        if missing:
+            raise ValueError(
+                f"{', '.join(missing)} must not be empty.",
+            )
         if not self.access_key_id:
             self.access_key_id = (
                 os.environ.get("AGENTLOOP_AK")
@@ -158,24 +177,18 @@ class AgentLoopConfig:
         if not self.access_key_id or not self.access_key_secret:
             raise ValueError(
                 "AccessKey credentials are required. Provide them via "
-                "`access_key_id` and `access_key_secret` parameters or set "
-                "`ALIBABA_CLOUD_ACCESS_KEY_ID` and "
-                "`ALIBABA_CLOUD_ACCESS_KEY_SECRET` environment variables.",
+                "`access_key_id` and `access_key_secret` parameters, or set "
+                "environment variables: AGENTLOOP_AK / AGENTLOOP_SK "
+                "(or ALIBABA_CLOUD_ACCESS_KEY_ID / "
+                "ALIBABA_CLOUD_ACCESS_KEY_SECRET).",
             )
 
     def _create_agentloop_client(self) -> "Any":
         """Create an AgentLoop API client from this config's credentials."""
-        try:
-            from alibabacloud_agentloop20260520.client import Client
-            from alibabacloud_tea_openapi import (
-                utils_models as open_api_util_models,
-            )
-        except ImportError as e:
-            raise ImportError(
-                "The alibabacloud-agentloop20260520 package is required. "
-                "Install with: "
-                "pip install alibabacloud-agentloop20260520",
-            ) from e
+        from ._vendor.alibabacloud_agentloop20260520.client import Client
+        from alibabacloud_tea_openapi import (
+            utils_models as open_api_util_models,
+        )
 
         client_config = open_api_util_models.Config(
             access_key_id=self.access_key_id,
@@ -231,16 +244,9 @@ class AgentLoopConfig:
         if getattr(self, "_evaluators_validated", False):
             return
 
-        try:
-            from alibabacloud_agentloop20260520 import (
-                models as agentloop_models,
-            )
-        except ImportError as e:
-            raise ImportError(
-                "The alibabacloud-agentloop20260520 package is required. "
-                "Install with: "
-                "pip install alibabacloud-agentloop20260520",
-            ) from e
+        from ._vendor.alibabacloud_agentloop20260520 import (
+            models as agentloop_models,
+        )
 
         for ev_cfg in self.evaluators:
             if not ev_cfg.evaluator_ref and not ev_cfg.name:
@@ -263,10 +269,9 @@ class AgentLoopConfig:
                 )
             except Exception as e:
                 raise ValueError(
-                    f"Failed to fetch evaluator '{ev_name}' from agent "
-                    f"space '{self.agent_space}'. This may mean the "
-                    f"evaluator does not exist, or the AccessKey lacks "
-                    f"permission. Original error: {e}",
+                    f"Failed to fetch evaluator '{ev_name}' from "
+                    f"agent space '{self.agent_space}': "
+                    f"{_format_api_error(e)}",
                 ) from e
 
             evaluator = resp.body.evaluator if resp.body else None
@@ -305,12 +310,12 @@ class AgentLoopConfig:
                     dataset_columns = set()
                     if resp.body and resp.body.schema:
                         dataset_columns = set(resp.body.schema.keys())
-                except Exception:
+                except Exception as e:
                     raise ValueError(
                         f"Failed to fetch dataset '{self.dataset}' "
-                        f"schema from agent space '{self.agent_space}'. "
-                        f"Cannot validate variable_mapping values.",
-                    )
+                        f"from agent space '{self.agent_space}': "
+                        f"{_format_api_error(e)}",
+                    ) from e
 
             for var_name, var_value in user_mapping.items():
                 error = self._validate_mapping_value(

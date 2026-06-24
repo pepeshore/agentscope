@@ -14,33 +14,21 @@ pip install -i https://test.pypi.org/simple/ agentloop_sdk
 import asyncio
 from agentloop_sdk import (
     AgentLoopConfig,
-    EvaluatorConfig,
     http_solution_with,
     run_experiment_parallel,
 )
 
 config = AgentLoopConfig(
     agent_space="my-agent-space",
-    dataset="my_dataset",
+    experiment_plan_id="my_plan_id",
     region_id="cn-hangzhou",
-    experiment_name="my-experiment",
-    evaluators=[
-        EvaluatorConfig(
-            evaluator_ref="Builtin.agent_correctness",
-            result_type="score",
-            variable_mapping={
-                "input": "experiment_input",
-                "output": "experiment_output",
-                "expected_output": "dataset.expected_output",
-            },
-        ),
-    ],
 )
 
 solution = http_solution_with(
     url="https://your-agent-endpoint.com/invoke",
     headers={"key": "your-api-key"},
     body_builder=lambda task: {
+        # 其中 task.input 是一个 dict，对应数据集中的一条记录，key 为数据集的列名
         "input": task.input.get("input", ""),
         "stream": False,
     },
@@ -68,7 +56,7 @@ export AGENTLOOP_SK="your-access-key-secret"
 ```python
 config = AgentLoopConfig(
     agent_space="my-agent-space",
-    dataset="my_dataset",
+    experiment_plan_id="my_plan_id",
     region_id="cn-hangzhou",
     access_key_id="your-ak",
     access_key_secret="your-sk",
@@ -82,13 +70,13 @@ config = AgentLoopConfig(
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `agent_space` | `str` | 是 | AgentLoop 空间名称 |
-| `dataset` | `str` | 是 | 数据集名称 |
+| `experiment_plan_id` | `str` | 是 | 实验计划 ID，需为离线类型（`experiment_type == "offline"`），数据集从计划中自动解析 |
 | `region_id` | `str` | 是 | 阿里云地域 ID，如 `"cn-hangzhou"` |
-| `experiment_name` | `str` | 否 | 实验名称，默认自动生成 |
+| `experiment_name` | `str` | 否 | 实验名称，默认 `"experimentA"`，实验记录名称由计划名称加时间戳自动生成 |
 | `experiment_config` | `dict` | 否 | 实验配置元数据，如 `{"agent_name": "..."}` |
 | `evaluators` | `list[EvaluatorConfig]` | 否 | 评估器配置列表 |
 | `project` | `str` | 否 | SLS 项目名，默认从 agent_space 自动解析 |
-| `query` | `str` | 否 | 自定义 SQL 查询加载数据 |
+| `query` | `str` | 否 | 自定义 SQL 查询加载数据（`data_source.type = "DATASET_PARTIAL"`），为空时自动分页加载（`"DATASET_FULL"`） |
 | `max_rows` | `int` | 否 | 自动分页加载的最大行数，默认 1000 |
 | `ground_truth_field` | `str` | 否 | 数据集中标准答案的字段名 |
 | `custom_agentloop_endpoint` | `str` | 否 | 自定义 AgentLoop API 地址 |
@@ -110,6 +98,8 @@ EvaluatorConfig(
 )
 ```
 
+当使用 `evaluator_ref` 引用平台评估器时，`type`、`name`、`result_name` 等字段会在验证阶段从服务端定义自动回填，无需手动指定。如果实验计划中已包含相同评估器，SDK 会输出警告并优先使用计划中的配置。
+
 `variable_mapping` 的值支持三种来源：
 - `"experiment_input"` — 实验的输入数据
 - `"experiment_output"` — Solution 的输出结果
@@ -118,6 +108,8 @@ EvaluatorConfig(
 ## Solution 类型
 
 Solution 定义了如何调用你的 Agent 并获取结果。SDK 提供 HTTP 和命令行两种内置方案。
+
+其中 `task.input` 是一个 `dict`，对应数据集中的一条记录，key 为数据集的列名。
 
 ### http_solution_with
 
@@ -288,7 +280,7 @@ from agentloop_sdk import (
 async def main():
     config = AgentLoopConfig(
         agent_space="default-cn-hangzhou",
-        dataset="cc_dataset",
+        experiment_plan_id="cc_plan_id",
         region_id="cn-hangzhou",
         experiment_name="Offline-Experiment-LocalAgent",
         experiment_config={"agent_name": "LocalAgent"},

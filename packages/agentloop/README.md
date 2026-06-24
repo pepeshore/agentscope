@@ -262,9 +262,14 @@ await run_experiment_parallel(
 | `n_repeat` | `int` | 每个 Task 重复次数，默认 1 |
 | `n_workers` | `int` | 并发 worker 数（串行默认 1，并行默认 4） |
 
-## W3C Trace Context
+## W3C Trace Context & Baggage
 
-`http_solution` / `http_solution_with` 会自动在请求头中注入符合 W3C Trace Context 规范的 `traceparent` 头，并从响应头中提取 `eagleeye-traceId` 或 `traceId` 用于链路追踪关联。
+`http_solution` / `http_solution_with` 会自动在请求头中注入：
+
+- **`traceparent`** — 符合 W3C Trace Context 规范的链路追踪头，并从响应头中提取 `eagleeye-traceId` 或 `traceId` 用于链路追踪关联。
+- **`baggage`** — 符合 W3C Baggage 规范，携带以下实验上下文：
+  - `traffic.agentloop.experiment.id` — 本次实验的唯一 ID
+  - `traffic.agentloop.dataset.data_item_id` — 当前数据集记录的 ID
 
 ## 完整示例
 

@@ -266,6 +266,25 @@ def http_solution(
 
             propagate.inject(carrier=headers)
 
+            baggage_items: list[str] = []
+            if task.metadata and task.metadata.get("experiment_id"):
+                baggage_items.append(
+                    "traffic.agentloop.experiment.id="
+                    f"{task.metadata['experiment_id']}",
+                )
+            data_item_id = (
+                task.input.get("id", "")
+                if isinstance(task.input, dict)
+                else ""
+            )
+            if data_item_id:
+                baggage_items.append(
+                    "traffic.agentloop.dataset.data_item_id="
+                    f"{data_item_id}",
+                )
+            if baggage_items:
+                headers["baggage"] = ",".join(baggage_items)
+
             request_summary: dict[str, Any] = {
                 "method": spec.method,
                 "url": spec.url,

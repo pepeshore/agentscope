@@ -58,6 +58,11 @@ async def _run(
             n_workers=n_workers,
         )
 
+    for task in benchmark:
+        if task.metadata is None:
+            task.metadata = {}
+        task.metadata["experiment_id"] = storage.experiment_id
+
     mode = "parallel" if parallel else "serial"
     logger.info(
         "Experiment %s | %s | %d tasks | %s, n_workers=%d",

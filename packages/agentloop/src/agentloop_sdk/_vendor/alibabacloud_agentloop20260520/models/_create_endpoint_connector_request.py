@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from alibabacloud_agentloop20260520 import models as main_models
+from .. import models as main_models
 from darabonba.model import DaraModel
 
 class CreateEndpointConnectorRequest(DaraModel):
@@ -24,11 +24,14 @@ class CreateEndpointConnectorRequest(DaraModel):
         self.alias = alias
         self.credential = credential
         self.description = description
+        # This parameter is required.
         self.endpoint = endpoint
         self.headers = headers
+        # This parameter is required.
         self.name = name
         self.properties = properties
         self.tags = tags
+        # This parameter is required.
         self.type = type
         self.client_token = client_token
 

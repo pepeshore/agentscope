@@ -4,10 +4,8 @@ import asyncio
 from typing import Callable, Coroutine, Any
 
 from agentscope._logging import logger
-from agentscope.evaluate import (
-    GeneralEvaluator,
-    SolutionOutput,
-)
+from agentscope.evaluate import SolutionOutput
+from ._general_evaluator import AgentLoopGeneralEvaluator
 from ._agentloop_config import AgentLoopConfig
 from ._agentloop_benchmark._agentloop_benchmark import AgentLoopBenchmark
 from ._evaluator_storage._agentloop_evaluator_storage import (
@@ -23,6 +21,7 @@ async def _run(
     n_workers: int,
     parallel: bool,
 ) -> None:
+    config.resolve_experiment_plan()
     config.validate_evaluators()
 
     benchmark = AgentLoopBenchmark(
@@ -41,7 +40,7 @@ async def _run(
     )
 
     if parallel:
-        from agentscope.evaluate import ParallelEvaluator
+        from ._parallel_evaluator import ParallelEvaluator
 
         evaluator = ParallelEvaluator(
             name="AgentLoop Evaluation",
@@ -51,7 +50,7 @@ async def _run(
             n_workers=n_workers,
         )
     else:
-        evaluator = GeneralEvaluator(
+        evaluator = AgentLoopGeneralEvaluator(
             name="AgentLoop Evaluation",
             benchmark=benchmark,
             n_repeat=n_repeat,

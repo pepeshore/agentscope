@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
-from alibabacloud_agentloop20260520 import models as main_models
+from .. import models as main_models
 from darabonba.model import DaraModel
 
 class ListExperimentTasksResponseBody(DaraModel):
@@ -16,7 +16,7 @@ class ListExperimentTasksResponseBody(DaraModel):
         page_size: int = None,
         records: List[main_models.ExperimentRecord] = None,
         request_id: str = None,
-        total: str = None,
+        total: int = None,
     ):
         self.max_results = max_results
         self.next_token = next_token

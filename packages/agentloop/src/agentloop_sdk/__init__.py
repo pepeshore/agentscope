@@ -12,6 +12,8 @@ from ._solutions import (
     command_solution_with,
 )
 from ._experiment import run_experiment, run_experiment_parallel
+from ._parallel_evaluator import ParallelEvaluator
+from ._general_evaluator import AgentLoopGeneralEvaluator
 
 from agentscope.evaluate import (
     Task,
@@ -20,7 +22,6 @@ from agentscope.evaluate import (
     EvaluatorStorageBase,
     FileEvaluatorStorage,
     GeneralEvaluator,
-    ParallelEvaluator,
     RayEvaluator,
     MetricBase,
     MetricResult,
@@ -45,6 +46,7 @@ __all__ = [
     "EvaluatorStorageBase",
     "FileEvaluatorStorage",
     "GeneralEvaluator",
+    "AgentLoopGeneralEvaluator",
     "ParallelEvaluator",
     "RayEvaluator",
     "MetricBase",

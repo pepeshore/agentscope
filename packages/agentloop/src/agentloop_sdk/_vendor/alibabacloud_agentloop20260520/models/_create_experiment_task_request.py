@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Dict, Any
 
-from alibabacloud_agentloop20260520 import models as main_models
+from .. import models as main_models
 from darabonba.model import DaraModel
 
 class CreateExperimentTaskRequest(DaraModel):
@@ -15,9 +15,11 @@ class CreateExperimentTaskRequest(DaraModel):
         experiment_plan_id: str = None,
         experiments: List[main_models.ExperimentConfig] = None,
     ):
+        # This parameter is required.
         self.data_source = data_source
         self.evaluators = evaluators
         self.experiment_plan_id = experiment_plan_id
+        # This parameter is required.
         self.experiments = experiments
 
     def validate(self):
@@ -91,6 +93,7 @@ class CreateExperimentTaskRequestDataSource(DaraModel):
         self.input = input
         self.query_sql = query_sql
         self.selected_item_ids = selected_item_ids
+        # This parameter is required.
         self.type = type
 
     def validate(self):

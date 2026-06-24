@@ -39,6 +39,7 @@ from ._create_context_store_apikey_request import CreateContextStoreAPIKeyReques
 from ._create_context_store_apikey_response_body import CreateContextStoreAPIKeyResponseBody
 from ._create_context_store_apikey_response import CreateContextStoreAPIKeyResponse
 from ._create_dataset_request import CreateDatasetRequest
+from ._create_dataset_shrink_request import CreateDatasetShrinkRequest
 from ._create_dataset_response_body import CreateDatasetResponseBody
 from ._create_dataset_response import CreateDatasetResponse
 from ._create_endpoint_connector_request import CreateEndpointConnectorRequest
@@ -183,6 +184,9 @@ from ._get_mem_0memory_history_response import GetMem0MemoryHistoryResponse
 from ._get_pipeline_request import GetPipelineRequest
 from ._get_pipeline_response_body import GetPipelineResponseBody
 from ._get_pipeline_response import GetPipelineResponse
+from ._get_trajectory_store_request import GetTrajectoryStoreRequest
+from ._get_trajectory_store_response_body import GetTrajectoryStoreResponseBody
+from ._get_trajectory_store_response import GetTrajectoryStoreResponse
 from ._list_agent_spaces_request import ListAgentSpacesRequest
 from ._list_agent_spaces_response_body import ListAgentSpacesResponseBody
 from ._list_agent_spaces_response import ListAgentSpacesResponse
@@ -279,6 +283,9 @@ from ._update_mem_0memory_response import UpdateMem0MemoryResponse
 from ._update_pipeline_request import UpdatePipelineRequest
 from ._update_pipeline_response_body import UpdatePipelineResponseBody
 from ._update_pipeline_response import UpdatePipelineResponse
+from ._update_trajectory_store_request import UpdateTrajectoryStoreRequest
+from ._update_trajectory_store_response_body import UpdateTrajectoryStoreResponseBody
+from ._update_trajectory_store_response import UpdateTrajectoryStoreResponse
 from ._upload_experiment_request import UploadExperimentRequest
 from ._upload_experiment_response_body import UploadExperimentResponseBody
 from ._upload_experiment_response import UploadExperimentResponse
@@ -359,6 +366,7 @@ from ._update_pipeline_request import UpdatePipelineRequestSinkDataset
 from ._update_pipeline_request import UpdatePipelineRequestSink
 from ._update_pipeline_request import UpdatePipelineRequestSourceLogstore
 from ._update_pipeline_request import UpdatePipelineRequestSource
+from ._upload_experiment_request import UploadExperimentRequestDataSource
 
 __all__ = [
     BackfillStrategy,
@@ -398,6 +406,7 @@ __all__ = [
     CreateContextStoreAPIKeyResponseBody,
     CreateContextStoreAPIKeyResponse,
     CreateDatasetRequest,
+    CreateDatasetShrinkRequest,
     CreateDatasetResponseBody,
     CreateDatasetResponse,
     CreateEndpointConnectorRequest,
@@ -542,6 +551,9 @@ __all__ = [
     GetPipelineRequest,
     GetPipelineResponseBody,
     GetPipelineResponse,
+    GetTrajectoryStoreRequest,
+    GetTrajectoryStoreResponseBody,
+    GetTrajectoryStoreResponse,
     ListAgentSpacesRequest,
     ListAgentSpacesResponseBody,
     ListAgentSpacesResponse,
@@ -638,6 +650,9 @@ __all__ = [
     UpdatePipelineRequest,
     UpdatePipelineResponseBody,
     UpdatePipelineResponse,
+    UpdateTrajectoryStoreRequest,
+    UpdateTrajectoryStoreResponseBody,
+    UpdateTrajectoryStoreResponse,
     UploadExperimentRequest,
     UploadExperimentResponseBody,
     UploadExperimentResponse,
@@ -717,5 +732,6 @@ __all__ = [
     UpdatePipelineRequestSinkDataset,
     UpdatePipelineRequestSink,
     UpdatePipelineRequestSourceLogstore,
-    UpdatePipelineRequestSource
+    UpdatePipelineRequestSource,
+    UploadExperimentRequestDataSource
 ]

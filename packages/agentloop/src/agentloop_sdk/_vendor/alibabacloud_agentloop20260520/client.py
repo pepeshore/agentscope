@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Dict
 
-from alibabacloud_agentloop20260520 import models as main_models
+from . import models as main_models
 from alibabacloud_tea_openapi import utils_models as open_api_util_models
 from alibabacloud_tea_openapi.client import Client as OpenApiClient
 from alibabacloud_tea_openapi.utils import Utils
@@ -152,13 +152,9 @@ class Client(OpenApiClient):
         query = {}
         if not DaraCore.is_null(request.client_token):
             query['clientToken'] = request.client_token
-        body = {}
-        if not DaraCore.is_null(request.data_array):
-            body['dataArray'] = request.data_array
         req = open_api_util_models.OpenApiRequest(
             headers = headers,
-            query = Utils.query(query),
-            body = Utils.parse_to_map(body)
+            query = Utils.query(query)
         )
         params = open_api_util_models.Params(
             action = 'AddDatasetData',
@@ -188,13 +184,9 @@ class Client(OpenApiClient):
         query = {}
         if not DaraCore.is_null(request.client_token):
             query['clientToken'] = request.client_token
-        body = {}
-        if not DaraCore.is_null(request.data_array):
-            body['dataArray'] = request.data_array
         req = open_api_util_models.OpenApiRequest(
             headers = headers,
-            query = Utils.query(query),
-            body = Utils.parse_to_map(body)
+            query = Utils.query(query)
         )
         params = open_api_util_models.Params(
             action = 'AddDatasetData',
@@ -417,6 +409,8 @@ class Client(OpenApiClient):
             body['cmsWorkspace'] = request.cms_workspace
         if not DaraCore.is_null(request.description):
             body['description'] = request.description
+        if not DaraCore.is_null(request.trajectory_store_enabled):
+            body['trajectoryStoreEnabled'] = request.trajectory_store_enabled
         req = open_api_util_models.OpenApiRequest(
             headers = headers,
             query = Utils.query(query),
@@ -455,6 +449,8 @@ class Client(OpenApiClient):
             body['cmsWorkspace'] = request.cms_workspace
         if not DaraCore.is_null(request.description):
             body['description'] = request.description
+        if not DaraCore.is_null(request.trajectory_store_enabled):
+            body['trajectoryStoreEnabled'] = request.trajectory_store_enabled
         req = open_api_util_models.OpenApiRequest(
             headers = headers,
             query = Utils.query(query),
@@ -795,11 +791,15 @@ class Client(OpenApiClient):
     def create_dataset_with_options(
         self,
         agent_space: str,
-        request: main_models.CreateDatasetRequest,
+        tmp_req: main_models.CreateDatasetRequest,
         headers: Dict[str, str],
         runtime: RuntimeOptions,
     ) -> main_models.CreateDatasetResponse:
-        request.validate()
+        tmp_req.validate()
+        request = main_models.CreateDatasetShrinkRequest()
+        Utils.convert(tmp_req, request)
+        if not DaraCore.is_null(tmp_req.schema):
+            request.schema_shrink = Utils.array_to_string_with_specified_style(tmp_req.schema, 'schema', 'json')
         query = {}
         if not DaraCore.is_null(request.client_token):
             query['clientToken'] = request.client_token
@@ -808,8 +808,8 @@ class Client(OpenApiClient):
             body['datasetName'] = request.dataset_name
         if not DaraCore.is_null(request.description):
             body['description'] = request.description
-        if not DaraCore.is_null(request.schema):
-            body['schema'] = request.schema
+        if not DaraCore.is_null(request.schema_shrink):
+            body['schema'] = request.schema_shrink
         req = open_api_util_models.OpenApiRequest(
             headers = headers,
             query = Utils.query(query),
@@ -823,7 +823,7 @@ class Client(OpenApiClient):
             method = 'POST',
             auth_type = 'AK',
             style = 'ROA',
-            req_body_type = 'json',
+            req_body_type = 'formData',
             body_type = 'json'
         )
         return DaraCore.from_map(
@@ -834,11 +834,15 @@ class Client(OpenApiClient):
     async def create_dataset_with_options_async(
         self,
         agent_space: str,
-        request: main_models.CreateDatasetRequest,
+        tmp_req: main_models.CreateDatasetRequest,
         headers: Dict[str, str],
         runtime: RuntimeOptions,
     ) -> main_models.CreateDatasetResponse:
-        request.validate()
+        tmp_req.validate()
+        request = main_models.CreateDatasetShrinkRequest()
+        Utils.convert(tmp_req, request)
+        if not DaraCore.is_null(tmp_req.schema):
+            request.schema_shrink = Utils.array_to_string_with_specified_style(tmp_req.schema, 'schema', 'json')
         query = {}
         if not DaraCore.is_null(request.client_token):
             query['clientToken'] = request.client_token
@@ -847,8 +851,8 @@ class Client(OpenApiClient):
             body['datasetName'] = request.dataset_name
         if not DaraCore.is_null(request.description):
             body['description'] = request.description
-        if not DaraCore.is_null(request.schema):
-            body['schema'] = request.schema
+        if not DaraCore.is_null(request.schema_shrink):
+            body['schema'] = request.schema_shrink
         req = open_api_util_models.OpenApiRequest(
             headers = headers,
             query = Utils.query(query),
@@ -862,7 +866,7 @@ class Client(OpenApiClient):
             method = 'POST',
             auth_type = 'AK',
             style = 'ROA',
-            req_body_type = 'json',
+            req_body_type = 'formData',
             body_type = 'json'
         )
         return DaraCore.from_map(
@@ -1379,6 +1383,8 @@ class Client(OpenApiClient):
             body['description'] = request.description
         if not DaraCore.is_null(request.evaluators):
             body['evaluators'] = request.evaluators
+        if not DaraCore.is_null(request.experiment_type):
+            body['experimentType'] = request.experiment_type
         if not DaraCore.is_null(request.experiments):
             body['experiments'] = request.experiments
         if not DaraCore.is_null(request.input):
@@ -1424,6 +1430,8 @@ class Client(OpenApiClient):
             body['description'] = request.description
         if not DaraCore.is_null(request.evaluators):
             body['evaluators'] = request.evaluators
+        if not DaraCore.is_null(request.experiment_type):
+            body['experimentType'] = request.experiment_type
         if not DaraCore.is_null(request.experiments):
             body['experiments'] = request.experiments
         if not DaraCore.is_null(request.input):
@@ -5104,6 +5112,82 @@ class Client(OpenApiClient):
         headers = {}
         return await self.get_pipeline_with_options_async(agent_space, pipeline_name, request, headers, runtime)
 
+    def get_trajectory_store_with_options(
+        self,
+        agentspace: str,
+        trajectory_store_name: str,
+        request: main_models.GetTrajectoryStoreRequest,
+        headers: Dict[str, str],
+        runtime: RuntimeOptions,
+    ) -> main_models.GetTrajectoryStoreResponse:
+        request.validate()
+        req = open_api_util_models.OpenApiRequest(
+            headers = headers
+        )
+        params = open_api_util_models.Params(
+            action = 'GetTrajectoryStore',
+            version = '2026-05-20',
+            protocol = 'HTTPS',
+            pathname = f'/agentspace/{DaraURL.percent_encode(agentspace)}/trajectorystore/{DaraURL.percent_encode(trajectory_store_name)}',
+            method = 'GET',
+            auth_type = 'AK',
+            style = 'ROA',
+            req_body_type = 'json',
+            body_type = 'json'
+        )
+        return DaraCore.from_map(
+            main_models.GetTrajectoryStoreResponse(),
+            self.call_api(params, req, runtime)
+        )
+
+    async def get_trajectory_store_with_options_async(
+        self,
+        agentspace: str,
+        trajectory_store_name: str,
+        request: main_models.GetTrajectoryStoreRequest,
+        headers: Dict[str, str],
+        runtime: RuntimeOptions,
+    ) -> main_models.GetTrajectoryStoreResponse:
+        request.validate()
+        req = open_api_util_models.OpenApiRequest(
+            headers = headers
+        )
+        params = open_api_util_models.Params(
+            action = 'GetTrajectoryStore',
+            version = '2026-05-20',
+            protocol = 'HTTPS',
+            pathname = f'/agentspace/{DaraURL.percent_encode(agentspace)}/trajectorystore/{DaraURL.percent_encode(trajectory_store_name)}',
+            method = 'GET',
+            auth_type = 'AK',
+            style = 'ROA',
+            req_body_type = 'json',
+            body_type = 'json'
+        )
+        return DaraCore.from_map(
+            main_models.GetTrajectoryStoreResponse(),
+            await self.call_api_async(params, req, runtime)
+        )
+
+    def get_trajectory_store(
+        self,
+        agentspace: str,
+        trajectory_store_name: str,
+        request: main_models.GetTrajectoryStoreRequest,
+    ) -> main_models.GetTrajectoryStoreResponse:
+        runtime = RuntimeOptions()
+        headers = {}
+        return self.get_trajectory_store_with_options(agentspace, trajectory_store_name, request, headers, runtime)
+
+    async def get_trajectory_store_async(
+        self,
+        agentspace: str,
+        trajectory_store_name: str,
+        request: main_models.GetTrajectoryStoreRequest,
+    ) -> main_models.GetTrajectoryStoreResponse:
+        runtime = RuntimeOptions()
+        headers = {}
+        return await self.get_trajectory_store_with_options_async(agentspace, trajectory_store_name, request, headers, runtime)
+
     def list_agent_spaces_with_options(
         self,
         request: main_models.ListAgentSpacesRequest,
@@ -8026,6 +8110,8 @@ class Client(OpenApiClient):
             body['description'] = request.description
         if not DaraCore.is_null(request.evaluators):
             body['evaluators'] = request.evaluators
+        if not DaraCore.is_null(request.experiment_type):
+            body['experimentType'] = request.experiment_type
         if not DaraCore.is_null(request.experiments):
             body['experiments'] = request.experiments
         if not DaraCore.is_null(request.input):
@@ -8074,6 +8160,8 @@ class Client(OpenApiClient):
             body['description'] = request.description
         if not DaraCore.is_null(request.evaluators):
             body['evaluators'] = request.evaluators
+        if not DaraCore.is_null(request.experiment_type):
+            body['experimentType'] = request.experiment_type
         if not DaraCore.is_null(request.experiments):
             body['experiments'] = request.experiments
         if not DaraCore.is_null(request.input):
@@ -8332,6 +8420,78 @@ class Client(OpenApiClient):
         headers = {}
         return await self.update_pipeline_with_options_async(agent_space, pipeline_name, request, headers, runtime)
 
+    def update_trajectory_store_with_options(
+        self,
+        agentspace: str,
+        request: main_models.UpdateTrajectoryStoreRequest,
+        headers: Dict[str, str],
+        runtime: RuntimeOptions,
+    ) -> main_models.UpdateTrajectoryStoreResponse:
+        request.validate()
+        req = open_api_util_models.OpenApiRequest(
+            headers = headers
+        )
+        params = open_api_util_models.Params(
+            action = 'UpdateTrajectoryStore',
+            version = '2026-05-20',
+            protocol = 'HTTPS',
+            pathname = f'/agentspace/{DaraURL.percent_encode(agentspace)}/trajectorystore',
+            method = 'PUT',
+            auth_type = 'AK',
+            style = 'ROA',
+            req_body_type = 'json',
+            body_type = 'json'
+        )
+        return DaraCore.from_map(
+            main_models.UpdateTrajectoryStoreResponse(),
+            self.call_api(params, req, runtime)
+        )
+
+    async def update_trajectory_store_with_options_async(
+        self,
+        agentspace: str,
+        request: main_models.UpdateTrajectoryStoreRequest,
+        headers: Dict[str, str],
+        runtime: RuntimeOptions,
+    ) -> main_models.UpdateTrajectoryStoreResponse:
+        request.validate()
+        req = open_api_util_models.OpenApiRequest(
+            headers = headers
+        )
+        params = open_api_util_models.Params(
+            action = 'UpdateTrajectoryStore',
+            version = '2026-05-20',
+            protocol = 'HTTPS',
+            pathname = f'/agentspace/{DaraURL.percent_encode(agentspace)}/trajectorystore',
+            method = 'PUT',
+            auth_type = 'AK',
+            style = 'ROA',
+            req_body_type = 'json',
+            body_type = 'json'
+        )
+        return DaraCore.from_map(
+            main_models.UpdateTrajectoryStoreResponse(),
+            await self.call_api_async(params, req, runtime)
+        )
+
+    def update_trajectory_store(
+        self,
+        agentspace: str,
+        request: main_models.UpdateTrajectoryStoreRequest,
+    ) -> main_models.UpdateTrajectoryStoreResponse:
+        runtime = RuntimeOptions()
+        headers = {}
+        return self.update_trajectory_store_with_options(agentspace, request, headers, runtime)
+
+    async def update_trajectory_store_async(
+        self,
+        agentspace: str,
+        request: main_models.UpdateTrajectoryStoreRequest,
+    ) -> main_models.UpdateTrajectoryStoreResponse:
+        runtime = RuntimeOptions()
+        headers = {}
+        return await self.update_trajectory_store_with_options_async(agentspace, request, headers, runtime)
+
     def upload_experiment_with_options(
         self,
         agent_space: str,
@@ -8351,10 +8511,10 @@ class Client(OpenApiClient):
             body['evaluators'] = request.evaluators
         if not DaraCore.is_null(request.executed_at):
             body['executedAt'] = request.executed_at
-        if not DaraCore.is_null(request.experiment_config):
-            body['experimentConfig'] = request.experiment_config
         if not DaraCore.is_null(request.experiment_plan_id):
             body['experimentPlanId'] = request.experiment_plan_id
+        if not DaraCore.is_null(request.experiments):
+            body['experiments'] = request.experiments
         if not DaraCore.is_null(request.failed_tasks):
             body['failedTasks'] = request.failed_tasks
         if not DaraCore.is_null(request.record_id):
@@ -8402,10 +8562,10 @@ class Client(OpenApiClient):
             body['evaluators'] = request.evaluators
         if not DaraCore.is_null(request.executed_at):
             body['executedAt'] = request.executed_at
-        if not DaraCore.is_null(request.experiment_config):
-            body['experimentConfig'] = request.experiment_config
         if not DaraCore.is_null(request.experiment_plan_id):
             body['experimentPlanId'] = request.experiment_plan_id
+        if not DaraCore.is_null(request.experiments):
+            body['experiments'] = request.experiments
         if not DaraCore.is_null(request.failed_tasks):
             body['failedTasks'] = request.failed_tasks
         if not DaraCore.is_null(request.record_id):

@@ -1,13 +1,13 @@
 [project]
 name = "agentloop_sdk"
-version = "0.5.2"
+version = "0.5.3"
 description = "SDK for the Alibaba CLoud AgentLoop platform. https://cmsnext.console.aliyun.com/agentloop"
 authors = [
     { name = "Alibaba Cloud CMS" }
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "agentscope",
+    "agentscope>=1.0.15,<2.0.0",
     "aliyun-log-python-sdk",
     "opentelemetry-api",
     "darabonba-core>=1.0.0,<2.0.0",

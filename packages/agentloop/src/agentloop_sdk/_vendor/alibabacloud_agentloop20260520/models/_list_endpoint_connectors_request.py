@@ -13,6 +13,7 @@ class ListEndpointConnectorsRequest(DaraModel):
         next_token: str = None,
         type: str = None,
     ):
+        # This parameter is required.
         self.agent_space = agent_space
         self.max_results = max_results
         self.name = name

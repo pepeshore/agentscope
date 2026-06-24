@@ -2,7 +2,7 @@
 # This file is auto-generated, don't edit it. Thanks.
 from __future__ import annotations
 
-from alibabacloud_agentloop20260520 import models as main_models
+from .. import models as main_models
 from darabonba.model import DaraModel
 
 class GetAgentSpaceResponseBody(DaraModel):

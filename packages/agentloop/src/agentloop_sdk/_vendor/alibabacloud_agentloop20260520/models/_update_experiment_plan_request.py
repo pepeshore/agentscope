@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Dict, Any
 
-from alibabacloud_agentloop20260520 import models as main_models
+from .. import models as main_models
 from darabonba.model import DaraModel
 
 class UpdateExperimentPlanRequest(DaraModel):
@@ -14,6 +14,7 @@ class UpdateExperimentPlanRequest(DaraModel):
         dataset_project: str = None,
         description: str = None,
         evaluators: List[main_models.Evaluator] = None,
+        experiment_type: str = None,
         experiments: List[main_models.ExperimentConfig] = None,
         input: Dict[str, Any] = None,
         plan_name: str = None,
@@ -24,6 +25,7 @@ class UpdateExperimentPlanRequest(DaraModel):
         self.dataset_project = dataset_project
         self.description = description
         self.evaluators = evaluators
+        self.experiment_type = experiment_type
         self.experiments = experiments
         self.input = input
         self.plan_name = plan_name
@@ -58,6 +60,9 @@ class UpdateExperimentPlanRequest(DaraModel):
         if self.evaluators is not None:
             for k1 in self.evaluators:
                 result['evaluators'].append(k1.to_map() if k1 else None)
+
+        if self.experiment_type is not None:
+            result['experimentType'] = self.experiment_type
 
         result['experiments'] = []
         if self.experiments is not None:
@@ -94,6 +99,9 @@ class UpdateExperimentPlanRequest(DaraModel):
             for k1 in m.get('evaluators'):
                 temp_model = main_models.Evaluator()
                 self.evaluators.append(temp_model.from_map(k1))
+
+        if m.get('experimentType') is not None:
+            self.experiment_type = m.get('experimentType')
 
         self.experiments = []
         if m.get('experiments') is not None:

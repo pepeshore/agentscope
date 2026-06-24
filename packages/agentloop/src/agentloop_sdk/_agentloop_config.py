@@ -29,7 +29,8 @@ class EvaluatorConfig:
         name (`str`):
             Evaluator name for inline (ondemand) evaluators.
         type (`str`):
-            Evaluator type. Defaults to ``"LLM"``.
+            Evaluator type. If not provided, will be backfilled from the
+            server-side evaluator definition during validation.
         result_name (`str`):
             Name of the evaluation metric / score.
         result_type (`str`):
@@ -46,7 +47,7 @@ class EvaluatorConfig:
 
     evaluator_ref: str = ""
     name: str = ""
-    type: str = "LLM"
+    type: str = ""
     result_name: str = ""
     result_type: str = ""
     filters: dict | None = None
@@ -65,8 +66,10 @@ class AgentLoopConfig:
     Attributes:
         agent_space (`str`):
             The AgentLoop agent space name.
-        dataset (`str`):
-            The dataset name.
+        experiment_plan_id (`str`):
+            The experiment plan ID. The plan must have
+            ``experiment_type == "offline"``. The dataset is resolved
+            automatically from the plan.
         region_id (`str`):
             The Alibaba Cloud region ID (e.g., "cn-hangzhou", "cn-shanghai").
             Used to construct endpoints.
@@ -75,9 +78,11 @@ class AgentLoopConfig:
             the agent space at runtime via ``get_agent_space``.
         query (`str`):
             Custom SQL query for loading data. When provided, the query is
-            executed as-is in a single call. When empty (the default),
-            automatic LIMIT/OFFSET pagination is used to load up to
-            ``max_rows`` records.
+            executed as-is in a single call and included in the uploaded
+            experiment record (``data_source.type = "DATASET_PARTIAL"``).
+            When empty (the default), automatic LIMIT/OFFSET pagination is
+            used to load up to ``max_rows`` records
+            (``data_source.type = "DATASET_FULL"``).
         max_rows (`int`):
             Maximum number of records to load when using automatic pagination
             (i.e., when ``query`` is empty). Defaults to 1000. Ignored when
@@ -99,10 +104,10 @@ class AgentLoopConfig:
             Custom SLS endpoint URL. When set, takes priority over the
             auto-generated endpoint from ``region_id``.
         experiment_name (`str`):
-            Name for the experiment. Shared by the benchmark and storage,
-            so they advertise the same identity on the platform and in
-            local metadata. Defaults to ``"{dataset}_{timestamp}"`` if not
-            provided.
+            Name for the experiment, used in ``ExperimentConfig`` and SLS
+            detail logs. Defaults to ``"experimentA"`` if not provided.
+            The experiment record name is derived from the plan name plus
+            a timestamp.
         experiment_config (`dict`):
             User-defined experiment configuration metadata uploaded to the
             AgentLoop platform (e.g. ``{"agent_name": "..."}``).
@@ -118,7 +123,7 @@ class AgentLoopConfig:
     """
 
     agent_space: str
-    dataset: str
+    experiment_plan_id: str
     region_id: str
     project: str = ""
     query: str = ""
@@ -132,11 +137,16 @@ class AgentLoopConfig:
     access_key_id: str = field(default="", repr=False)
     access_key_secret: str = field(default="", repr=False)
 
+    # Resolved from experiment plan (not user-provided)
+    dataset: str = field(default="", init=False, repr=False)
+    plan_name: str = field(default="", init=False, repr=False)
+    plan_evaluators: list = field(default_factory=list, init=False, repr=False)
+
     def __post_init__(self) -> None:
         """Post-initialization to load credentials and set defaults."""
         missing = [
             name
-            for name in ("agent_space", "dataset", "region_id")
+            for name in ("agent_space", "experiment_plan_id", "region_id")
             if not getattr(self, name)
         ]
         if missing:
@@ -162,11 +172,71 @@ class AgentLoopConfig:
 
     @property
     def effective_experiment_name(self) -> str:
-        """Return the experiment name, generating a default if unset."""
-        if self.experiment_name:
-            return self.experiment_name
-        import time
-        return f"{self.dataset}_{time.strftime('%Y%m%d_%H%M%S')}"
+        """Return the experiment name, defaulting to ``"experimentA"``."""
+        return self.experiment_name or "experimentA"
+
+    def resolve_experiment_plan(self) -> None:
+        """Fetch the experiment plan and resolve ``dataset`` and
+        ``plan_name``.
+
+        The plan's ``experiment_type`` must be ``"offline"``, otherwise a
+        ``ValueError`` is raised.
+
+        This method is idempotent — repeated calls are no-ops.
+
+        Raises:
+            `ValueError`:
+                If the plan does not exist, its type is not ``"offline"``,
+                or it has no associated dataset.
+        """
+        if getattr(self, "_plan_resolved", False):
+            return
+
+        self.validate_credentials()
+
+        from ._vendor.alibabacloud_agentloop20260520 import (
+            models as agentloop_models,
+        )
+
+        client = self._create_agentloop_client()
+        req = agentloop_models.GetExperimentPlanRequest()
+
+        try:
+            resp = client.get_experiment_plan(
+                self.agent_space,
+                self.experiment_plan_id,
+                req,
+            )
+        except Exception as e:
+            raise ValueError(
+                f"Failed to get experiment plan "
+                f"'{self.experiment_plan_id}' in agent space "
+                f"'{self.agent_space}': {_format_api_error(e)}",
+            ) from e
+
+        body = resp.body
+        if not body:
+            raise ValueError(
+                f"Experiment plan '{self.experiment_plan_id}' returned "
+                f"an empty response.",
+            )
+
+        if body.experiment_type != "offline":
+            raise ValueError(
+                f"Experiment plan '{self.experiment_plan_id}' has type "
+                f"'{body.experiment_type}', expected 'offline'.",
+            )
+
+        if not body.dataset_id:
+            raise ValueError(
+                f"Experiment plan '{self.experiment_plan_id}' has no "
+                f"associated dataset.",
+            )
+
+        self.dataset = body.dataset_id
+        self.plan_name = body.plan_name or self.experiment_plan_id
+        self.plan_evaluators = body.evaluators or []
+        self._plan_resolved = True
 
     def validate_credentials(self) -> None:
         """Validate that required credentials are present.
@@ -244,9 +314,29 @@ class AgentLoopConfig:
         if getattr(self, "_evaluators_validated", False):
             return
 
+        self.resolve_experiment_plan()
+
+        from agentscope._logging import logger
+
         from ._vendor.alibabacloud_agentloop20260520 import (
             models as agentloop_models,
         )
+
+        # Warn about evaluators that duplicate plan evaluators early.
+        plan_eval_keys = {
+            ev.evaluator_ref or ev.name or ""
+            for ev in self.plan_evaluators
+        }
+        plan_eval_keys.discard("")
+        for ev_cfg in self.evaluators:
+            key = ev_cfg.evaluator_ref or ev_cfg.name or ""
+            if key and key in plan_eval_keys:
+                logger.warning(
+                    "Local evaluator '%s' duplicates an evaluator "
+                    "in the experiment plan. Using the plan's "
+                    "evaluator configuration.",
+                    key,
+                )
 
         for ev_cfg in self.evaluators:
             if not ev_cfg.evaluator_ref and not ev_cfg.name:
@@ -275,7 +365,18 @@ class AgentLoopConfig:
                 ) from e
 
             evaluator = resp.body.evaluator if resp.body else None
-            if not evaluator or not evaluator.config:
+            if not evaluator:
+                continue
+
+            # Backfill local config fields from server-side definition.
+            if not ev_cfg.type and evaluator.type:
+                ev_cfg.type = evaluator.type
+            if not ev_cfg.name and evaluator.name:
+                ev_cfg.name = evaluator.name
+            if not ev_cfg.result_name and evaluator.metric_name:
+                ev_cfg.result_name = evaluator.metric_name
+
+            if not evaluator.config:
                 continue
 
             variables = evaluator.config.get("variables", [])

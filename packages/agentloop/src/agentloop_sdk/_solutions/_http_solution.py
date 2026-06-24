@@ -186,6 +186,7 @@ def http_solution(
     *,
     default_timeout: float = 60.0,
     chunk_extractor: Callable[[Any], str] | None = None,
+    transport_retries: int = 2,
 ) -> Callable[[Task, Callable], Awaitable[SolutionOutput]]:
     """Wrap an HTTP request builder into an evaluator solution function.
 
@@ -203,6 +204,13 @@ def http_solution(
             passed to this callable; the return values are concatenated
             as the final output. When ``None``, SSE payloads are
             concatenated as-is.
+        transport_retries (`int`):
+            Number of transport-level retries for connection setup /
+            response-header read failures (e.g. httpx.ReadError raised by
+            a stale keep-alive connection). Retries only apply before any
+            response body byte is received — SSE streams that break
+            mid-flight are NOT retried, to avoid duplicate agent side
+            effects. Defaults to 2. Set to 0 to disable.
 
     Returns:
         `Callable[[Task, Callable], Awaitable[SolutionOutput]]`:
@@ -273,22 +281,46 @@ def http_solution(
             resp = None
             resp_text = ""
             status_code = None
+            chunks: list[str] = []
+            max_attempts = 1 + transport_retries
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    async with client.stream(
-                        spec.method,
-                        spec.url,
-                        headers=headers,
-                        json=spec.json,
-                        data=spec.data,
-                        params=spec.params,
-                    ) as resp:
-                        status_code = resp.status_code
-                        resp.raise_for_status()
-                        chunks: list[str] = []
-                        async for chunk in resp.aiter_text():
-                            chunks.append(chunk)
-                        resp_text = "".join(chunks)
+                for _attempt in range(max_attempts):
+                    resp = None
+                    resp_text = ""
+                    status_code = None
+                    chunks = []
+                    try:
+                        async with httpx.AsyncClient(
+                            timeout=timeout,
+                        ) as client:
+                            async with client.stream(
+                                spec.method,
+                                spec.url,
+                                headers=headers,
+                                json=spec.json,
+                                data=spec.data,
+                                params=spec.params,
+                            ) as resp:
+                                status_code = resp.status_code
+                                resp.raise_for_status()
+                                async for chunk in resp.aiter_text():
+                                    chunks.append(chunk)
+                                resp_text = "".join(chunks)
+                        break
+                    except (httpx.ReadError, httpx.ConnectError) as e:
+                        if chunks:
+                            raise
+                        if _attempt < max_attempts - 1:
+                            import asyncio
+                            await asyncio.sleep(0.5 * (_attempt + 1))
+                            _logger.debug(
+                                "Retrying %s %s (attempt %d/%d) after %s",
+                                spec.method, spec.url,
+                                _attempt + 2, max_attempts,
+                                type(e).__name__,
+                            )
+                            continue
+                        raise
             except httpx.HTTPStatusError as e:
                 span.set_status(
                     trace.StatusCode.ERROR,
@@ -321,9 +353,30 @@ def http_solution(
                     },
                 )
             except Exception as e:  # noqa: BLE001 - network / transport errors
+                import traceback as _tb
+
+                err_message = str(e)
+                if not err_message:
+                    err_message = repr(e) or type(e).__name__
+
+                partial_text = "".join(chunks)
+                bytes_read = len(partial_text.encode("utf-8", "ignore"))
+                _logger.warning(
+                    "http_solution %s %s failed: %s | status=%s "
+                    "bytes_read=%d cause=%r partial_head=%r traceId=%s\n%s",
+                    spec.method,
+                    spec.url,
+                    err_message,
+                    status_code,
+                    bytes_read,
+                    e.__cause__,
+                    partial_text[:200],
+                    otel_trace_id,
+                    _tb.format_exc(),
+                )
                 span.set_status(
                     trace.StatusCode.ERROR,
-                    str(e),
+                    err_message,
                 )
                 return SolutionOutput(
                     success=False,
@@ -332,8 +385,13 @@ def http_solution(
                     meta={
                         "experiment_input": spec.json if spec.json is not None else spec.data,
                         "error_type": type(e).__name__,
-                        "error_message": str(e),
+                        "error_message": err_message,
+                        "error_repr": repr(e),
+                        "cause": repr(e.__cause__) if e.__cause__ else None,
                         "request": request_summary,
+                        "status_code": status_code,
+                        "bytes_read": bytes_read,
+                        "partial_response": partial_text[:2000],
                         "traceId": otel_trace_id,
                     },
                 )
@@ -377,6 +435,7 @@ def http_solution_with(
     body_builder: Callable[[Task], Any] | None = None,
     timeout: float = 60.0,
     chunk_extractor: Callable[[Any], str] | None = None,
+    transport_retries: int = 2,
 ) -> Callable[[Task, Callable], Awaitable[SolutionOutput]]:
     """Build a solution from a static request template.
 
@@ -398,6 +457,11 @@ def http_solution_with(
             is JSON-decoded and passed to this callable; return values
             are concatenated as the final output. When ``None``, SSE
             payloads are concatenated as-is.
+        transport_retries (`int`):
+            Number of transport-level retries for connection setup /
+            response-header read failures (e.g. httpx.ReadError raised
+            by a stale keep-alive connection). See ``http_solution`` for
+            semantics. Defaults to 2.
 
     Returns:
         `Callable[[Task, Callable], Awaitable[SolutionOutput]]`:
@@ -433,4 +497,5 @@ def http_solution_with(
         build_request,
         default_timeout=timeout,
         chunk_extractor=chunk_extractor,
+        transport_retries=transport_retries,
     )

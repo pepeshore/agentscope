@@ -5,7 +5,6 @@ from ._evaluator import (
     EvaluatorBase,
     RayEvaluator,
     GeneralEvaluator,
-    ParallelEvaluator,
 )
 from ._metric_base import (
     MetricBase,
@@ -31,7 +30,6 @@ __all__ = [
     "EvaluatorBase",
     "RayEvaluator",
     "GeneralEvaluator",
-    "ParallelEvaluator",
     "MetricBase",
     "MetricResult",
     "MetricType",

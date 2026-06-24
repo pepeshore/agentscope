@@ -97,14 +97,16 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
         self._base_experiment_name = (
             experiment_name or self.config.effective_experiment_name
         )
-        self.experiment_name = f"{self._base_experiment_name} {_ts}"
+        self.experiment_name = f"{self.config.plan_name} {_ts}"
         self.experiment_type = experiment_type
         self.experiment_start_time = int(time.time() * 1000)
         self.experiment_metadata = {
             "run_env": "local_run",
             "record_id": self.experiment_id,
             "record_name": self.experiment_name,
-            "experiment_group_name": self.experiment_name,
+            "experiment_group_name": self._base_experiment_name,
+            "planId": self.config.experiment_plan_id,
+            "planName": self.config.plan_name,
         }
         if experiment_metadata:
             self.experiment_metadata.update(experiment_metadata)
@@ -269,7 +271,7 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
         """
         contents = [
             ("experiment_id", self.experiment_id),
-            ("experiment_name", self.experiment_name),
+            ("experiment_name", self._base_experiment_name),
             ("experiment_start_time", str(self.experiment_start_time)),
             ("experiment_type", self.experiment_type),
             (
@@ -397,10 +399,26 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                     else "UnknownError"
                 )
                 error_message = (
-                    error_meta.get("error_message") or "Unknown error"
+                    error_meta.get("error_message")
                     if isinstance(error_meta, dict)
-                    else "Unknown error"
+                    else None
                 )
+                if not error_message:
+                    # Fall back to the cause / repr captured by the solution
+                    # so we don't lose diagnostics when httpx exceptions
+                    # carry an empty str().
+                    error_message = (
+                        error_meta.get("error_repr")
+                        if isinstance(error_meta, dict)
+                        else None
+                    ) or error_type
+                    logger.warning(
+                        "Empty error_message for failed task "
+                        f"(error_type={error_type}, "
+                        f"record_id={self.experiment_id}). "
+                        "Falling back to error_repr/type. meta=%s",
+                        error_meta,
+                    )
                 experiment_output = f"ERROR: {error_type} - {error_message}"
             contents.append(("experiment_output", experiment_output))
 
@@ -408,6 +426,15 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
             trace_id = output_meta.get("traceId")
             if trace_id:
                 contents.append(("traceId", str(trace_id)))
+
+            # Add experiment_metrics with latency (ms).
+            latency_ms = output_meta.get("latency_ms", 0)
+            contents.append(
+                (
+                    "experiment_metrics",
+                    json.dumps({"latency": latency_ms}),
+                ),
+            )
 
             # Flatten dataset columns to top-level dataset.<col> fields.
             # List / dict values are JSON-serialized; scalars are stringified.
@@ -467,6 +494,50 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
         # Track total tasks
         self._total_tasks += 1
 
+    def _merge_evaluators(self, agentloop_models: Any) -> list | None:
+        """Merge plan evaluators with local evaluators.
+
+        Plan evaluators take priority. When a local evaluator has the same
+        ``evaluator_ref`` as a plan evaluator, the plan version is kept and
+        a warning is logged. Local-only evaluators (not in the plan) are
+        appended to the result.
+
+        Returns:
+            A list of ``agentloop_models.Evaluator`` or ``None`` if both
+            sources are empty.
+        """
+        # Build a dict keyed by evaluator_ref from plan evaluators.
+        plan_keys: set[str] = set()
+        merged: dict[str, Any] = {}
+        for ev in self.config.plan_evaluators:
+            key = ev.evaluator_ref or ev.name or ""
+            if key:
+                merged[key] = ev
+                plan_keys.add(key)
+
+        # Local evaluators are added only if not already in the plan.
+        if self.config.evaluators:
+            for e in self.config.evaluators:
+                key = e.evaluator_ref or e.name or ""
+                if not key:
+                    continue
+                if key in plan_keys:
+                    continue
+                merged[key] = agentloop_models.Evaluator(
+                    evaluator_ref=e.evaluator_ref or None,
+                    name=e.name or None,
+                    type=e.type or None,
+                    result_name=e.result_name or None,
+                    result_type=e.result_type or None,
+                    filters=e.filters,
+                    config=e.config,
+                    variable_mapping=e.variable_mapping,
+                )
+
+        if not merged:
+            return None
+        return list(merged.values())
+
     def upload_experiment_record(
         self,
         aggregation_result: dict,
@@ -488,26 +559,19 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
 
         client = self._get_agentloop_client()
 
-        data_source = {
-            "type": "DATASET_FULL",
-            "datasetId": self.config.dataset,
-        }
+        if self.config.query:
+            data_source = agentloop_models.UploadExperimentRequestDataSource(
+                type="DATASET_PARTIAL",
+                dataset_id=self.config.dataset,
+                query_sql=self.config.query,
+            )
+        else:
+            data_source = agentloop_models.UploadExperimentRequestDataSource(
+                type="DATASET_FULL",
+                dataset_id=self.config.dataset,
+            )
 
-        evaluator_models = None
-        if self.config.evaluators:
-            evaluator_models = [
-                agentloop_models.Evaluator(
-                    evaluator_ref=e.evaluator_ref or None,
-                    name=e.name or None,
-                    type=e.type or None,
-                    result_name=e.result_name or None,
-                    result_type=e.result_type or None,
-                    filters=e.filters,
-                    config=e.config,
-                    variable_mapping=e.variable_mapping,
-                )
-                for e in self.config.evaluators
-            ]
+        evaluator_models = self._merge_evaluators(agentloop_models)
 
         req = agentloop_models.UploadExperimentRequest(
             record_id=self.experiment_id,
@@ -518,9 +582,12 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
             executed_at=self.experiment_start_time,
             completed_at=int(time.time() * 1000),
             data_source=data_source,
-            experiment_config=agentloop_models.ExperimentConfig(
-                name=self._base_experiment_name,
-            ),
+            experiment_plan_id=self.config.experiment_plan_id,
+            experiments=[
+                agentloop_models.ExperimentConfig(
+                    name=self._base_experiment_name,
+                ),
+            ],
             evaluators=evaluator_models,
         )
 
@@ -529,7 +596,7 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 self.config.agent_space,
                 req,
             )
-            logger.info(
+            logger.debug(
                 f"Uploaded experiment record '{self.experiment_id}' to "
                 f"AgentLoop. Response: "
                 f"{json.dumps(resp.to_map(), default=str, indent=2)}",

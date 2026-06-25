@@ -76,6 +76,16 @@ def command_solution(
 
         command_repr = cmd if is_shell else list(cmd)
 
+        if not is_shell:
+            import shutil
+
+            resolved = shutil.which(
+                cmd[0],
+                path=full_env.get("PATH") if full_env else None,
+            )
+            if resolved:
+                cmd = [resolved] + list(cmd[1:])
+
         try:
             if is_shell:
                 proc = await asyncio.create_subprocess_shell(

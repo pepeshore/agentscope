@@ -1,11 +1,11 @@
 # AgentLoop SDK
 
-AgentLoop SDK 是阿里云 [AgentLoop 平台](https://cmsnext.console.aliyun.com/agentloop) 的 Python SDK，用于对 LLM Agent 应用进行离线实验评估。
+AgentLoop SDK 是阿里云 [AgentLoop 平台](https://agentloop.console.aliyun.com/) 的 Python SDK，用于对 LLM Agent 应用进行离线实验评估。
 
 ## 安装
 
 ```bash
-pip install -i https://test.pypi.org/simple/ agentloop_sdk
+pip install agentloop_sdk
 ```
 
 ## 快速开始

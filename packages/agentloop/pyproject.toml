@@ -1,7 +1,7 @@
 [project]
 name = "agentloop_sdk"
-version = "0.5.3"
-description = "SDK for the Alibaba CLoud AgentLoop platform. https://cmsnext.console.aliyun.com/agentloop"
+version = "1.0.0"
+description = "SDK for the Alibaba CLoud AgentLoop platform. https://agentloop.console.aliyun.com/"
 authors = [
     { name = "Alibaba Cloud CMS" }
 ]

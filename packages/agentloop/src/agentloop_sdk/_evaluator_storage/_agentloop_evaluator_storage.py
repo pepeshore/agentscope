@@ -422,6 +422,10 @@ class AgentLoopEvaluatorStorage(FileEvaluatorStorage):
                 experiment_output = f"ERROR: {error_type} - {error_message}"
             contents.append(("experiment_output", experiment_output))
 
+            contents.append(
+                ("status", "success" if output.success else "failed"),
+            )
+
             # Add traceId from solution meta if available.
             trace_id = output_meta.get("traceId")
             if trace_id:

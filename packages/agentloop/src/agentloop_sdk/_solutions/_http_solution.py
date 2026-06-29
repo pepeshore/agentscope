@@ -296,6 +296,17 @@ def http_solution(
                 request_summary["data"] = spec.data
             if spec.params is not None:
                 request_summary["params"] = spec.params
+            if _logger.isEnabledFor(logging.DEBUG):
+                import json as _dbg_json
+                _logger.debug(
+                    ">>> HTTP Request\n%s %s\nHeaders: %s\nBody: %s",
+                    spec.method,
+                    spec.url,
+                    _dbg_json.dumps(dict(headers), ensure_ascii=False, indent=2),
+                    _dbg_json.dumps(spec.json, ensure_ascii=False, indent=2)
+                    if spec.json is not None
+                    else spec.data,
+                )
 
             resp = None
             resp_text = ""
@@ -321,10 +332,10 @@ def http_solution(
                                 params=spec.params,
                             ) as resp:
                                 status_code = resp.status_code
-                                resp.raise_for_status()
                                 async for chunk in resp.aiter_text():
                                     chunks.append(chunk)
                                 resp_text = "".join(chunks)
+                                resp.raise_for_status()
                         break
                     except (httpx.ReadError, httpx.ConnectError) as e:
                         if chunks:
@@ -348,11 +359,23 @@ def http_solution(
                 trace_id = _extract_trace_id(
                     e.response, otel_trace_id,
                 )
-                error_body = resp_text or (
-                    e.response.text
-                    if e.response is not None
-                    else ""
-                )
+                try:
+                    error_body = resp_text or (
+                        e.response.text
+                        if e.response is not None
+                        else ""
+                    )
+                except httpx.ResponseNotRead:
+                    error_body = resp_text or ""
+                if _logger.isEnabledFor(logging.DEBUG):
+                    _logger.debug(
+                        "<<< HTTP Response (ERROR)\n%s %s\nStatus: %s\nHeaders: %s\nBody: %s",
+                        spec.method,
+                        spec.url,
+                        status_code,
+                        dict(e.response.headers) if e.response else {},
+                        error_body[:2000],
+                    )
                 return SolutionOutput(
                     success=False,
                     output=error_body,
@@ -418,6 +441,15 @@ def http_solution(
             span.set_status(trace.StatusCode.OK)
             trace_id = _extract_trace_id(resp, otel_trace_id)
             _logger.info("%s %s traceId=%s", spec.method, spec.url, trace_id)
+            if _logger.isEnabledFor(logging.DEBUG):
+                _logger.debug(
+                    "<<< HTTP Response\n%s %s\nStatus: %s\nHeaders: %s\nBody: %s",
+                    spec.method,
+                    spec.url,
+                    status_code,
+                    dict(resp.headers) if resp else {},
+                    resp_text[:2000],
+                )
 
         if _is_sse_response(resp, resp_text):
             body: Any = _parse_sse(resp_text, chunk_extractor)
